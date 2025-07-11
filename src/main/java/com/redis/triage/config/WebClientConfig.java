@@ -11,13 +11,13 @@ import org.springframework.web.reactive.function.client.WebClient;
 @Configuration
 public class WebClientConfig {
 
-    @Value("${app.litellm.base-url:http://localhost:4000}")
+    @Value("${LITELLM_BASE_URL:http://localhost:4000}")
     private String liteLLMBaseUrl;
 
-    @Value("${app.litellm.api-key:}")
+    @Value("${LITELLM_API_KEY}")
     private String liteLLMApiKey;
 
-    @Value("${app.slack.webhook-url:}")
+    @Value("${app.slack.webhook-url}")
     private String slackWebhookUrl;
 
     /**
