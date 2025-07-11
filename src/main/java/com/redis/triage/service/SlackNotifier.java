@@ -1,6 +1,7 @@
 package com.redis.triage.service;
 
 import com.redis.triage.model.GitHubIssuePayload;
+import com.redis.triage.model.SimilarIssue;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -80,11 +81,22 @@ public class SlackNotifier {
      * @param labels The generated labels for the issue
      */
     public void sendNotification(GitHubIssuePayload issue, List<String> labels) {
+        sendNotification(issue, labels, List.of());
+    }
+
+    /**
+     * Sends a notification about a GitHub issue with generated labels and similar issues
+     *
+     * @param issue The GitHub issue payload
+     * @param labels The generated labels for the issue
+     * @param similarIssues List of similar issues found through semantic search
+     */
+    public void sendNotification(GitHubIssuePayload issue, List<String> labels, List<SimilarIssue> similarIssues) {
         log.info("Sending Slack notification for issue: {}", issue.getTitle());
 
         try {
-            // Compose the Slack message
-            String message = composeSlackMessage(issue, labels);
+            // Compose the Slack message with similar issues
+            String message = composeSlackMessageWithSimilarIssues(issue, labels, similarIssues);
             log.debug("Composed Slack message: {}", message);
 
             // Build JSON payload
@@ -115,15 +127,49 @@ public class SlackNotifier {
      * @return Formatted Slack message
      */
     private String composeSlackMessage(GitHubIssuePayload issue, List<String> labels) {
+        return composeSlackMessageWithSimilarIssues(issue, labels, List.of());
+    }
+
+    /**
+     * Composes a formatted Slack message for a GitHub issue with similar issues
+     *
+     * @param issue The GitHub issue payload
+     * @param labels The generated labels for the issue
+     * @param similarIssues List of similar issues found through semantic search
+     * @return Formatted Slack message
+     */
+    private String composeSlackMessageWithSimilarIssues(GitHubIssuePayload issue, List<String> labels, List<SimilarIssue> similarIssues) {
         String title = issue.getTitle() != null ? issue.getTitle() : "Untitled Issue";
         String labelsText = labels != null && !labels.isEmpty() ?
             String.join(", ", labels) : "No labels";
         String link = issue.getHtmlUrl() != null ?
             issue.getHtmlUrl() : "https://github.com/placeholder/issue";
 
-        return String.format(
-            "🚨 New GitHub issue labeled\n*Title:* %s\n*Labels:* %s\n*Link:* %s",
+        StringBuilder messageBuilder = new StringBuilder();
+        messageBuilder.append(String.format(
+            "🚨 *New GitHub Issue Labeled*\n\n" +
+            "📋 *Title:* %s\n" +
+            "🏷️ *Labels:* %s\n" +
+            "🔗 *Link:* %s",
             title, labelsText, link
-        );
+        ));
+
+        // Add similar issues if any found
+        if (similarIssues != null && !similarIssues.isEmpty()) {
+            messageBuilder.append("\n\n🔍 *Similar Issues Found:*");
+            for (int i = 0; i < Math.min(similarIssues.size(), 3); i++) { // Limit to top 3
+                SimilarIssue similar = similarIssues.get(i);
+                String similarLabels = similar.getLabels() != null && !similar.getLabels().isEmpty() ?
+                    String.join(", ", similar.getLabels()) : "No labels";
+                messageBuilder.append(String.format(
+                    "\n• *#%s:* %s (Labels: %s)",
+                    similar.getIssueId(),
+                    similar.getTitle(),
+                    similarLabels
+                ));
+            }
+        }
+
+        return messageBuilder.toString();
     }
 }

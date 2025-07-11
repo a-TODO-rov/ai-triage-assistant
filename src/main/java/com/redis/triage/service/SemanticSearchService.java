@@ -68,6 +68,64 @@ public class SemanticSearchService {
     }
 
     /**
+     * Atomically finds similar issues and stores the new issue for future searches
+     * This ensures the new issue doesn't match itself and becomes available for future queries
+     *
+     * @param issue The GitHub issue to process
+     * @param labels The generated labels for the issue
+     * @param topK The number of top similar issues to return
+     * @return List of similar issues found before storing the new one
+     */
+    public List<SimilarIssue> findSimilarIssuesAndStore(GitHubIssuePayload issue, List<String> labels, int topK) {
+        log.info("Finding {} similar issues and storing new issue: {}", topK, issue.getTitle());
+
+        try {
+            // Step 1: Generate embedding from issue title and body
+            String searchText = buildSearchText(issue);
+            log.debug("Generated search text: {}", searchText);
+
+            float[] queryEmbedding = liteLLMClient.generateEmbedding(searchText);
+            if (queryEmbedding.length == 0) {
+                log.error("Failed to generate embedding for issue: {}", issue.getTitle());
+                return List.of();
+            }
+
+            log.info("Generated embedding with {} dimensions", queryEmbedding.length);
+
+            // Step 2: Search for similar issues BEFORE storing the new one
+            List<String> similarIssueKeys = redisVectorStoreService.searchSimilarIssues(queryEmbedding, topK);
+            log.info("Found {} similar issue keys: {}", similarIssueKeys.size(), similarIssueKeys);
+
+            // Step 3: Retrieve metadata for each similar issue
+            List<SimilarIssue> similarIssues = new ArrayList<>();
+            for (String issueKey : similarIssueKeys) {
+                SimilarIssue similarIssue = buildSimilarIssue(issueKey);
+                if (similarIssue != null) {
+                    similarIssues.add(similarIssue);
+                }
+            }
+
+            // Step 4: Store the new issue in Redis for future similarity searches
+            String issueId = extractIssueId(issue);
+            redisVectorStoreService.storeEmbedding(
+                issueId,
+                queryEmbedding,
+                issue.getTitle(),
+                issue.getBody(),
+                labels
+            );
+            log.info("Successfully stored issue '{}' with ID '{}' in Redis", issue.getTitle(), issueId);
+
+            log.info("Successfully found {} similar issues and stored new issue", similarIssues.size());
+            return similarIssues;
+
+        } catch (Exception e) {
+            log.error("Error in findSimilarIssuesAndStore for '{}': {}", issue.getTitle(), e.getMessage(), e);
+            return List.of();
+        }
+    }
+
+    /**
      * Builds the search text from issue title and body
      *
      * @param issue The GitHub issue payload
@@ -138,10 +196,36 @@ public class SemanticSearchService {
         if (labelsString == null || labelsString.trim().isEmpty()) {
             return List.of();
         }
-        
+
         return Arrays.stream(labelsString.split(","))
                 .map(String::trim)
                 .filter(label -> !label.isEmpty())
                 .toList();
+    }
+
+    /**
+     * Extracts or generates an issue ID from the GitHub issue payload
+     *
+     * @param issue The GitHub issue payload
+     * @return A unique issue ID
+     */
+    private String extractIssueId(GitHubIssuePayload issue) {
+        // Try to extract from HTML URL (e.g., https://github.com/owner/repo/issues/123)
+        if (issue.getHtmlUrl() != null && issue.getHtmlUrl().contains("/issues/")) {
+            String[] parts = issue.getHtmlUrl().split("/issues/");
+            if (parts.length > 1) {
+                return parts[1].split("[^0-9]")[0]; // Extract just the number
+            }
+        }
+
+        // Try to extract from additional properties
+        if (issue.getAdditional() != null && issue.getAdditional().containsKey("number")) {
+            return String.valueOf(issue.getAdditional().get("number"));
+        }
+
+        // Fallback: generate based on title hash and timestamp
+        String titleHash = String.valueOf(Math.abs(issue.getTitle().hashCode()));
+        String timestamp = String.valueOf(System.currentTimeMillis() / 1000);
+        return titleHash + "_" + timestamp;
     }
 }
