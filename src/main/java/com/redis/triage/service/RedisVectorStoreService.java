@@ -178,6 +178,66 @@ public class RedisVectorStoreService {
     }
 
     /**
+     * Searches for similar issues using KNN vector search with proper FT.SEARCH syntax
+     *
+     * @param queryVector The query vector for similarity search
+     * @param k The number of top matches to return
+     * @return List of matching Redis keys (issue IDs)
+     */
+    public List<String> searchSimilarIssues(float[] queryVector, int k) {
+        log.info("Searching for {} similar issues using KNN vector search", k);
+
+        try {
+            // Convert query vector to byte array
+            byte[] queryBytes = floatArrayToByteArray(queryVector);
+
+            // Build the FT.SEARCH query with proper KNN syntax
+            String searchQuery = String.format("*=>[KNN %d @embedding $vec_param]", k);
+
+            // Execute the search with PARAMS and DIALECT 2
+            SearchResult result = jedis.ftSearch(INDEX_NAME, searchQuery,
+                redis.clients.jedis.search.FTSearchParams.searchParams()
+                    .addParam("vec_param", queryBytes)
+                    .dialect(2)
+                    .limit(0, k));
+
+            List<String> issueKeys = new ArrayList<>();
+            for (Document doc : result.getDocuments()) {
+                // Return the full Redis key (e.g., "issue:123")
+                issueKeys.add(doc.getId());
+            }
+
+            log.info("Found {} similar issues: {}", issueKeys.size(), issueKeys);
+            return issueKeys;
+
+        } catch (Exception e) {
+            log.error("Failed to search for similar issues using KNN: {}", e.getMessage(), e);
+            return List.of();
+        }
+    }
+
+    /**
+     * Retrieves issue metadata from Redis by issue key
+     *
+     * @param issueKey The Redis key for the issue (e.g., "issue:123")
+     * @return Map containing issue metadata (title, labels) or empty map if not found
+     */
+    public Map<String, String> getIssueMetadata(String issueKey) {
+        log.debug("Retrieving metadata for issue key: {}", issueKey);
+
+        try {
+            Map<String, String> metadata = jedis.hgetAll(issueKey);
+            if (metadata.isEmpty()) {
+                log.warn("No metadata found for issue key: {}", issueKey);
+            }
+            return metadata;
+        } catch (Exception e) {
+            log.error("Failed to retrieve metadata for issue key '{}': {}", issueKey, e.getMessage(), e);
+            return Map.of();
+        }
+    }
+
+    /**
      * Legacy method for backward compatibility
      *
      * @param query The search query

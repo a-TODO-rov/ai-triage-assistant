@@ -32,6 +32,50 @@ public class LiteLLMClient {
     }
 
     /**
+     * Generates embeddings for the given text using LiteLLM API
+     *
+     * @param text The text to generate embeddings for
+     * @return The embedding vector as float array
+     */
+    public float[] generateEmbedding(String text) {
+        log.info("Generating embedding for text using LiteLLM API");
+        log.debug("Text content: {}", text);
+
+        try {
+            // Prepare the request payload for embeddings
+            Map<String, Object> requestBody = Map.of(
+                "model", "text-embedding-ada-002",
+                "input", text
+            );
+
+            // Make the API call to embeddings endpoint
+            Mono<Map> responseMono = liteLLMWebClient
+                .post()
+                .uri("/v1/embeddings")
+                .bodyValue(requestBody)
+                .retrieve()
+                .bodyToMono(Map.class);
+
+            Map<String, Object> response = responseMono.block();
+
+            if (response == null) {
+                log.error("Received null response from LiteLLM embeddings API");
+                return new float[0];
+            }
+
+            // Extract the embedding from the response
+            float[] embedding = extractEmbeddingFromResponse(response);
+            log.info("Successfully generated embedding with {} dimensions", embedding.length);
+
+            return embedding;
+
+        } catch (Exception e) {
+            log.error("Error generating embedding from LiteLLM API: {}", e.getMessage(), e);
+            return new float[0];
+        }
+    }
+
+    /**
      * Calls the LiteLLM API with the given prompt
      *
      * @param prompt The prompt to send to the LLM
@@ -76,6 +120,35 @@ public class LiteLLMClient {
         } catch (Exception e) {
             log.error("Error calling LiteLLM API: {}", e.getMessage(), e);
             return "Error: Failed to get response from LiteLLM API - " + e.getMessage();
+        }
+    }
+
+    /**
+     * Extracts the embedding from the LiteLLM embeddings API response
+     *
+     * @param response The response map from the embeddings API
+     * @return The extracted embedding as float array
+     */
+    @SuppressWarnings("unchecked")
+    private float[] extractEmbeddingFromResponse(Map<String, Object> response) {
+        try {
+            List<Map<String, Object>> data = (List<Map<String, Object>>) response.get("data");
+            if (data != null && !data.isEmpty()) {
+                Map<String, Object> firstEmbedding = data.get(0);
+                List<Double> embeddingList = (List<Double>) firstEmbedding.get("embedding");
+                if (embeddingList != null) {
+                    float[] embedding = new float[embeddingList.size()];
+                    for (int i = 0; i < embeddingList.size(); i++) {
+                        embedding[i] = embeddingList.get(i).floatValue();
+                    }
+                    return embedding;
+                }
+            }
+            log.warn("Unexpected embeddings response structure from LiteLLM API: {}", response);
+            return new float[0];
+        } catch (Exception e) {
+            log.error("Error extracting embedding from response: {}", e.getMessage(), e);
+            return new float[0];
         }
     }
 
