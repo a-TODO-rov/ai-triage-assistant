@@ -25,7 +25,12 @@ public class GitHubIssuePayload {
      * The body/description of the GitHub issue
      */
     private String body;
-    
+
+    /**
+     * The HTML URL of the GitHub issue
+     */
+    private String htmlUrl;
+
     /**
      * Additional properties from the GitHub webhook payload
      */

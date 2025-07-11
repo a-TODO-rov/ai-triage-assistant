@@ -41,12 +41,7 @@ public class GitHubWebhookController {
         log.info("Generated labels for issue '{}': {}", issue.getTitle(), labels);
 
         // Send notification to Slack
-        boolean notificationSent = slackNotifier.sendNotification(issue, labels);
-        if (notificationSent) {
-            log.info("Successfully sent Slack notification for issue: {}", issue.getTitle());
-        } else {
-            log.warn("Failed to send Slack notification for issue: {}", issue.getTitle());
-        }
+        slackNotifier.sendNotification(issue, labels);
 
         return Map.of("status", "labels applied");
     }

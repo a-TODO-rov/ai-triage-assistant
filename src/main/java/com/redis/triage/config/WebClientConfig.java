@@ -11,13 +11,13 @@ import org.springframework.web.reactive.function.client.WebClient;
 @Configuration
 public class WebClientConfig {
 
-    @Value("${LITELLM_BASE_URL:http://localhost:4000}")
+    @Value("${LITELLM_BASE_URL}")
     private String liteLLMBaseUrl;
 
     @Value("${LITELLM_API_KEY}")
     private String liteLLMApiKey;
 
-    @Value("${app.slack.webhook-url}")
+    @Value("${SLACK_WEBHOOK_URL}")
     private String slackWebhookUrl;
 
     /**
@@ -46,18 +46,6 @@ public class WebClientConfig {
     public WebClient slackWebClient() {
         return WebClient.builder()
                 .baseUrl(slackWebhookUrl)
-                .defaultHeader("Content-Type", "application/json")
-                .build();
-    }
-
-    /**
-     * Creates a general purpose WebClient bean
-     * 
-     * @return Configured WebClient instance
-     */
-    @Bean
-    public WebClient webClient() {
-        return WebClient.builder()
                 .defaultHeader("Content-Type", "application/json")
                 .build();
     }
