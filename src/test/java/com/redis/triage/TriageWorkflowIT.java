@@ -5,11 +5,12 @@ import com.redis.triage.controller.GitHubWebhookController;
 import com.redis.triage.model.GitHubIssue;
 import com.redis.triage.model.GitHubWebhookPayload;
 import com.redis.triage.service.*;
-import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.core.io.ClassPathResource;
@@ -29,20 +30,13 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Integration test for the complete issue triage workflow
- * Uses real LiteLLMClient bean connected to actual LiteLLM service
- * Uses real SlackNotifier bean connected to actual Slack webhook
- *
- * Required environment variables:
- * - LITELLM_BASE_URL: URL of the LiteLLM service
- * - LITELLM_API_KEY: API key for LiteLLM service
- * - SLACK_WEBHOOK_URL: Slack webhook URL for notifications
  */
-@Slf4j
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-                properties = {"spring.profiles.active=test"})
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
 class TriageWorkflowIT {
 
@@ -71,14 +65,15 @@ class TriageWorkflowIT {
     @Autowired
     private GitHubWebhookController gitHubWebhookController;
 
-    @Autowired
+    @MockBean
     private LiteLLMClient liteLLMClient;
 
-    @Autowired
+    @MockBean
     private SlackNotifier slackNotifier;
 
     // Test data
     private static final float[] MOCK_EMBEDDING = createMockEmbedding();
+    private static final List<String> EXPECTED_LABELS = List.of("bug", "lettuce");
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
@@ -88,16 +83,18 @@ class TriageWorkflowIT {
 
     @BeforeEach
     void setUp() {
-        // No mocks to reset - using real beans now
-
+        // Reset mocks
+        reset(liteLLMClient, slackNotifier);
+        
+        // Setup mock responses
+        setupMockResponses();
+        
         // Insert mock issues into Redis
         insertMockIssuesIntoRedis();
     }
 
     @Test
     void shouldExecuteCompleteTriageWorkflow() throws Exception {
-        log.info("Starting integration test with real LiteLLMClient and SlackNotifier");
-
         // Given: Load the webhook payload from file
         String webhookJson = loadWebhookPayload();
 
@@ -127,11 +124,39 @@ class TriageWorkflowIT {
         assertThat(response.getBody()).containsEntry("issue_id", String.valueOf(issue.getId()));
         assertThat(response.getBody()).containsEntry("issue_number", String.valueOf(issue.getNumber()));
 
-        // Note: Both LiteLLMClient and SlackNotifier are now real beans
-        // LiteLLMClient makes real API calls to the configured LiteLLM service
-        // SlackNotifier sends real notifications to the configured Slack webhook
-        // We verify the workflow completed successfully by checking the response
-        log.info("Test completed successfully - Real LiteLLM API calls and Slack notification sent");
+        // Verify LiteLLMClient was called for embedding generation
+        verify(liteLLMClient, times(1)).generateEmbedding(
+                argThat(text -> text.contains(issue.getTitle()) && text.contains(issue.getBody()))
+        );
+
+        // Verify LiteLLMClient was called for label generation
+        verify(liteLLMClient, times(1)).callLLM(
+                argThat(prompt -> prompt.contains("AI triage assistant") &&
+                                prompt.contains(issue.getTitle()))
+        );
+
+        // Verify SlackNotifier was called with correct message including similar issues
+        ArgumentCaptor<GitHubIssue> issueCaptor = ArgumentCaptor.forClass(GitHubIssue.class);
+        ArgumentCaptor<List<String>> labelsCaptor = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<List<GitHubIssue>> similarIssuesCaptor = ArgumentCaptor.forClass(List.class);
+
+        verify(slackNotifier, times(1)).sendNotification(
+                issueCaptor.capture(),
+                labelsCaptor.capture(),
+                similarIssuesCaptor.capture()
+        );
+
+        // Verify captured arguments
+        GitHubIssue capturedIssue = issueCaptor.getValue();
+        List<String> capturedLabels = labelsCaptor.getValue();
+        List<GitHubIssue> capturedSimilarIssues = similarIssuesCaptor.getValue();
+
+        assertThat(capturedIssue.getTitle()).isEqualTo(issue.getTitle());
+        assertThat(capturedIssue.getId()).isEqualTo(issue.getId());
+        assertThat(capturedLabels).containsExactlyInAnyOrderElementsOf(EXPECTED_LABELS);
+        assertThat(capturedSimilarIssues).hasSize(2);
+        assertThat(capturedSimilarIssues.get(0).getTitle()).isEqualTo("Redis cluster connection issues");
+        assertThat(capturedSimilarIssues.get(1).getTitle()).isEqualTo("Jedis timeout in high load");
 
         // Verify semantic search functionality (using the read-only method to avoid double storage)
         List<GitHubIssue> similarIssues = semanticSearchService.findSimilarIssues(issue, 3);
@@ -144,8 +169,7 @@ class TriageWorkflowIT {
 
         // Verify labeling service functionality
         List<String> generatedLabels = labelingService.generateLabels(issue);
-        assertThat(generatedLabels).isNotEmpty(); // Real LLM may return different labels than expected
-        log.info("Direct labeling service call generated labels: {}", generatedLabels);
+        assertThat(generatedLabels).containsExactlyInAnyOrderElementsOf(EXPECTED_LABELS);
 
         // Verify the new issue was stored in Redis and can be found in future searches
         // Wait a bit for Redis to process the new data
@@ -174,7 +198,17 @@ class TriageWorkflowIT {
         return Files.readString(resource.getFile().toPath());
     }
 
+    private void setupMockResponses() {
+        // Mock embedding generation
+        when(liteLLMClient.generateEmbedding(anyString())).thenReturn(MOCK_EMBEDDING);
 
+        // Mock label generation
+        when(liteLLMClient.callLLM(argThat(prompt -> prompt.contains("AI triage assistant"))))
+                .thenReturn("bug, lettuce");
+
+        // Mock Slack notification (void method)
+        doNothing().when(slackNotifier).sendNotification(any(GitHubIssue.class), anyList(), anyList());
+    }
 
     private void insertMockIssuesIntoRedis() {
         // Insert first mock issue
