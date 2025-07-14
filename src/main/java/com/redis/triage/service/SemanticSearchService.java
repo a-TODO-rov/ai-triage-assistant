@@ -1,7 +1,7 @@
 package com.redis.triage.service;
 
 import com.redis.triage.model.GitHubIssue;
-import com.redis.triage.model.SimilarIssue;
+import com.redis.triage.model.GitHubLabel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,7 +29,7 @@ public class SemanticSearchService {
      * @param topK The number of top similar issues to return
      * @return List of similar issues with metadata
      */
-    public List<SimilarIssue> findSimilarIssues(GitHubIssue issue, int topK) {
+    public List<GitHubIssue> findSimilarIssues(GitHubIssue issue, int topK) {
         log.info("Finding {} similar issues for: {}", topK, issue.getTitle());
 
         try {
@@ -50,9 +50,9 @@ public class SemanticSearchService {
             log.info("Found {} similar issue keys: {}", similarIssueKeys.size(), similarIssueKeys);
 
             // Step 3: Retrieve metadata for each similar issue
-            List<SimilarIssue> similarIssues = new ArrayList<>();
+            List<GitHubIssue> similarIssues = new ArrayList<>();
             for (String issueKey : similarIssueKeys) {
-                SimilarIssue similarIssue = buildSimilarIssue(issueKey);
+                GitHubIssue similarIssue = buildSimilarIssue(issueKey);
                 if (similarIssue != null) {
                     similarIssues.add(similarIssue);
                 }
@@ -76,7 +76,7 @@ public class SemanticSearchService {
      * @param topK The number of top similar issues to return
      * @return List of similar issues found before storing the new one
      */
-    public List<SimilarIssue> findSimilarIssuesAndStore(GitHubIssue issue, List<String> labels, int topK) {
+    public List<GitHubIssue> findSimilarIssuesAndStore(GitHubIssue issue, List<String> labels, int topK) {
         log.info("Finding {} similar issues and storing new issue: {}", topK, issue.getTitle());
 
         try {
@@ -97,9 +97,9 @@ public class SemanticSearchService {
             log.info("Found {} similar issue keys: {}", similarIssueKeys.size(), similarIssueKeys);
 
             // Step 3: Retrieve metadata for each similar issue
-            List<SimilarIssue> similarIssues = new ArrayList<>();
+            List<GitHubIssue> similarIssues = new ArrayList<>();
             for (String issueKey : similarIssueKeys) {
-                SimilarIssue similarIssue = buildSimilarIssue(issueKey);
+                GitHubIssue similarIssue = buildSimilarIssue(issueKey);
                 if (similarIssue != null) {
                     similarIssues.add(similarIssue);
                 }
@@ -139,16 +139,16 @@ public class SemanticSearchService {
     }
 
     /**
-     * Builds a SimilarIssue DTO from Redis issue key and metadata
+     * Builds a GitHubIssue from Redis issue key and metadata
      *
      * @param issueKey The Redis key for the issue (e.g., "issue:123")
-     * @return SimilarIssue DTO or null if metadata retrieval fails
+     * @return GitHubIssue or null if metadata retrieval fails
      */
-    private SimilarIssue buildSimilarIssue(String issueKey) {
+    private GitHubIssue buildSimilarIssue(String issueKey) {
         try {
             // Extract issue ID from the key (remove "issue:" prefix)
             String issueId = extractIssueId(issueKey);
-            
+
             // Retrieve metadata from Redis
             Map<String, String> metadata = redisVectorStoreService.getIssueMetadata(issueKey);
             if (metadata.isEmpty()) {
@@ -156,19 +156,28 @@ public class SemanticSearchService {
                 return null;
             }
 
-            // Extract title and labels from metadata
+            // Extract title, body, and labels from metadata
             String title = metadata.getOrDefault("title", "Unknown Title");
+            String body = metadata.getOrDefault("body", "");
+            String htmlUrl = metadata.getOrDefault("html_url", "");
             String labelsString = metadata.getOrDefault("labels", "");
             List<String> labels = parseLabels(labelsString);
 
-            return SimilarIssue.builder()
-                    .issueId(issueId)
+            // Build a minimal GitHubIssue with available metadata
+            return GitHubIssue.builder()
+                    .id(Long.parseLong(issueId))
                     .title(title)
-                    .labels(labels)
+                    .body(body)
+                    .htmlUrl(htmlUrl)
+                    .labels(labels.stream()
+                            .map(labelName -> GitHubLabel.builder()
+                                    .name(labelName)
+                                    .build())
+                            .toList())
                     .build();
 
         } catch (Exception e) {
-            log.error("Error building SimilarIssue from key '{}': {}", issueKey, e.getMessage(), e);
+            log.error("Error building GitHubIssue from key '{}': {}", issueKey, e.getMessage(), e);
             return null;
         }
     }

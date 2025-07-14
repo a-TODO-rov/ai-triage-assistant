@@ -2,7 +2,6 @@ package com.redis.triage.controller;
 
 import com.redis.triage.model.GitHubWebhookPayload;
 import com.redis.triage.model.GitHubIssue;
-import com.redis.triage.model.SimilarIssue;
 import com.redis.triage.service.LabelingService;
 import com.redis.triage.service.SemanticSearchService;
 import com.redis.triage.service.SlackNotifier;
@@ -59,10 +58,10 @@ public class GitHubWebhookController {
             log.info("Generated labels for issue '{}': {}", issue.getTitle(), labels);
 
             // Atomically find similar issues and store the new issue
-            List<SimilarIssue> similarIssues = semanticSearchService.findSimilarIssuesAndStore(issue, labels, 3);
+            List<GitHubIssue> similarIssues = semanticSearchService.findSimilarIssuesAndStore(issue, labels, 3);
             log.info("Found {} similar issues and stored new issue '{}': {}",
                 similarIssues.size(), issue.getTitle(),
-                similarIssues.stream().map(SimilarIssue::getTitle).toList());
+                similarIssues.stream().map(GitHubIssue::getTitle).toList());
 
             // Send notification to Slack with similar issues
             slackNotifier.sendNotification(issue, labels, similarIssues);

@@ -1,7 +1,6 @@
 package com.redis.triage.service;
 
 import com.redis.triage.model.GitHubIssue;
-import com.redis.triage.model.SimilarIssue;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -30,7 +29,7 @@ public class SlackNotifier {
      * @param labels The generated labels for the issue
      * @param similarIssues List of similar issues found through semantic search
      */
-    public void sendNotification(GitHubIssue issue, List<String> labels, List<SimilarIssue> similarIssues) {
+    public void sendNotification(GitHubIssue issue, List<String> labels, List<GitHubIssue> similarIssues) {
         log.info("Sending Slack notification for issue: {}", issue.getTitle());
 
         try {
@@ -66,7 +65,7 @@ public class SlackNotifier {
      * @param similarIssues List of similar issues found through semantic search
      * @return Formatted Slack message
      */
-    private String composeSlackMessageWithSimilarIssues(GitHubIssue issue, List<String> labels, List<SimilarIssue> similarIssues) {
+    private String composeSlackMessageWithSimilarIssues(GitHubIssue issue, List<String> labels, List<GitHubIssue> similarIssues) {
         String title = issue.getTitle() != null ? issue.getTitle() : "Untitled Issue";
         String labelsText = labels != null && !labels.isEmpty() ?
             String.join(", ", labels) : "No labels";
@@ -86,12 +85,14 @@ public class SlackNotifier {
         if (similarIssues != null && !similarIssues.isEmpty()) {
             messageBuilder.append("\n\n🔍 *Similar Issues Found:*");
             for (int i = 0; i < Math.min(similarIssues.size(), 3); i++) { // Limit to top 3
-                SimilarIssue similar = similarIssues.get(i);
+                GitHubIssue similar = similarIssues.get(i);
                 String similarLabels = similar.getLabels() != null && !similar.getLabels().isEmpty() ?
-                    String.join(", ", similar.getLabels()) : "No labels";
+                    similar.getLabels().stream()
+                            .map(label -> label.getName())
+                            .collect(java.util.stream.Collectors.joining(", ")) : "No labels";
                 messageBuilder.append(String.format(
                     "\n• *#%s:* %s (Labels: %s)",
-                    similar.getIssueId(),
+                    similar.getId(),
                     similar.getTitle(),
                     similarLabels
                 ));

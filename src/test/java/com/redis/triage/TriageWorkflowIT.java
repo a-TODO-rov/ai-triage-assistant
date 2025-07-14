@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.redis.triage.controller.GitHubWebhookController;
 import com.redis.triage.model.GitHubIssue;
 import com.redis.triage.model.GitHubWebhookPayload;
-import com.redis.triage.model.SimilarIssue;
 import com.redis.triage.service.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -139,7 +138,7 @@ class TriageWorkflowIT {
         // Verify SlackNotifier was called with correct message including similar issues
         ArgumentCaptor<GitHubIssue> issueCaptor = ArgumentCaptor.forClass(GitHubIssue.class);
         ArgumentCaptor<List<String>> labelsCaptor = ArgumentCaptor.forClass(List.class);
-        ArgumentCaptor<List<SimilarIssue>> similarIssuesCaptor = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<List<GitHubIssue>> similarIssuesCaptor = ArgumentCaptor.forClass(List.class);
 
         verify(slackNotifier, times(1)).sendNotification(
                 issueCaptor.capture(),
@@ -150,7 +149,7 @@ class TriageWorkflowIT {
         // Verify captured arguments
         GitHubIssue capturedIssue = issueCaptor.getValue();
         List<String> capturedLabels = labelsCaptor.getValue();
-        List<SimilarIssue> capturedSimilarIssues = similarIssuesCaptor.getValue();
+        List<GitHubIssue> capturedSimilarIssues = similarIssuesCaptor.getValue();
 
         assertThat(capturedIssue.getTitle()).isEqualTo(issue.getTitle());
         assertThat(capturedIssue.getId()).isEqualTo(issue.getId());
@@ -160,11 +159,11 @@ class TriageWorkflowIT {
         assertThat(capturedSimilarIssues.get(1).getTitle()).isEqualTo("Jedis timeout in high load");
 
         // Verify semantic search functionality (using the read-only method to avoid double storage)
-        List<SimilarIssue> similarIssues = semanticSearchService.findSimilarIssues(issue, 3);
+        List<GitHubIssue> similarIssues = semanticSearchService.findSimilarIssues(issue, 3);
         assertThat(similarIssues).hasSizeGreaterThanOrEqualTo(2);
 
         // Verify that we can find the original mock issues
-        List<String> foundTitles = similarIssues.stream().map(SimilarIssue::getTitle).toList();
+        List<String> foundTitles = similarIssues.stream().map(GitHubIssue::getTitle).toList();
         assertThat(foundTitles).contains("Redis cluster connection issues");
         assertThat(foundTitles).contains("Jedis timeout in high load");
 
@@ -185,12 +184,12 @@ class TriageWorkflowIT {
                 .htmlUrl("https://github.com/test/repo/issues/9999")
                 .build();
 
-        List<SimilarIssue> newSearchResults = semanticSearchService.findSimilarIssues(searchIssue, 5);
+        List<GitHubIssue> newSearchResults = semanticSearchService.findSimilarIssues(searchIssue, 5);
         // Should now find at least 3 issues: the 2 mock issues + the newly stored one
         assertThat(newSearchResults).hasSizeGreaterThanOrEqualTo(3);
 
         // Verify that the newly stored issue is now findable
-        List<String> newFoundTitles = newSearchResults.stream().map(SimilarIssue::getTitle).toList();
+        List<String> newFoundTitles = newSearchResults.stream().map(GitHubIssue::getTitle).toList();
         assertThat(newFoundTitles).contains(issue.getTitle());
     }
 
