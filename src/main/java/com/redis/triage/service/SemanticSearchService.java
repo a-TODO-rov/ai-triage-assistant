@@ -1,6 +1,6 @@
 package com.redis.triage.service;
 
-import com.redis.triage.model.GitHubIssuePayload;
+import com.redis.triage.model.GitHubIssue;
 import com.redis.triage.model.SimilarIssue;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,7 +29,7 @@ public class SemanticSearchService {
      * @param topK The number of top similar issues to return
      * @return List of similar issues with metadata
      */
-    public List<SimilarIssue> findSimilarIssues(GitHubIssuePayload issue, int topK) {
+    public List<SimilarIssue> findSimilarIssues(GitHubIssue issue, int topK) {
         log.info("Finding {} similar issues for: {}", topK, issue.getTitle());
 
         try {
@@ -76,7 +76,7 @@ public class SemanticSearchService {
      * @param topK The number of top similar issues to return
      * @return List of similar issues found before storing the new one
      */
-    public List<SimilarIssue> findSimilarIssuesAndStore(GitHubIssuePayload issue, List<String> labels, int topK) {
+    public List<SimilarIssue> findSimilarIssuesAndStore(GitHubIssue issue, List<String> labels, int topK) {
         log.info("Finding {} similar issues and storing new issue: {}", topK, issue.getTitle());
 
         try {
@@ -128,13 +128,13 @@ public class SemanticSearchService {
     /**
      * Builds the search text from issue title and body
      *
-     * @param issue The GitHub issue payload
+     * @param issue The GitHub issue
      * @return Formatted search text
      */
-    private String buildSearchText(GitHubIssuePayload issue) {
+    private String buildSearchText(GitHubIssue issue) {
         String title = issue.getTitle() != null ? issue.getTitle() : "";
         String body = issue.getBody() != null ? issue.getBody() : "";
-        
+
         return String.format("Title: %s\nBody: %s", title, body);
     }
 
@@ -204,23 +204,28 @@ public class SemanticSearchService {
     }
 
     /**
-     * Extracts or generates an issue ID from the GitHub issue payload
+     * Extracts the issue ID from the GitHub issue
      *
-     * @param issue The GitHub issue payload
+     * @param issue The GitHub issue
      * @return A unique issue ID
      */
-    private String extractIssueId(GitHubIssuePayload issue) {
+    private String extractIssueId(GitHubIssue issue) {
+        // Use the issue ID directly from the GitHub API
+        if (issue.getId() != null) {
+            return String.valueOf(issue.getId());
+        }
+
+        // Fallback to issue number if ID is not available
+        if (issue.getNumber() != null) {
+            return String.valueOf(issue.getNumber());
+        }
+
         // Try to extract from HTML URL (e.g., https://github.com/owner/repo/issues/123)
         if (issue.getHtmlUrl() != null && issue.getHtmlUrl().contains("/issues/")) {
             String[] parts = issue.getHtmlUrl().split("/issues/");
             if (parts.length > 1) {
                 return parts[1].split("[^0-9]")[0]; // Extract just the number
             }
-        }
-
-        // Try to extract from additional properties
-        if (issue.getAdditional() != null && issue.getAdditional().containsKey("number")) {
-            return String.valueOf(issue.getAdditional().get("number"));
         }
 
         // Fallback: generate based on title hash and timestamp

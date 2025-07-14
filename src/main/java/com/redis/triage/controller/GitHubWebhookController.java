@@ -1,6 +1,7 @@
 package com.redis.triage.controller;
 
-import com.redis.triage.model.GitHubIssuePayload;
+import com.redis.triage.model.GitHubWebhookPayload;
+import com.redis.triage.model.GitHubIssue;
 import com.redis.triage.model.SimilarIssue;
 import com.redis.triage.service.LabelingService;
 import com.redis.triage.service.SemanticSearchService;
@@ -32,12 +33,25 @@ public class GitHubWebhookController {
     /**
      * Handles GitHub issue webhook events
      *
-     * @param issue The GitHub issue payload
+     * @param webhookPayload The complete GitHub webhook payload
      * @return Response indicating successful processing
      */
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
-    public Map<String, String> handleIssueWebhook(@RequestBody GitHubIssuePayload issue) {
-        log.info("Received GitHub issue webhook for: {}", issue.getTitle());
+    public Map<String, String> handleIssueWebhook(@RequestBody GitHubWebhookPayload webhookPayload) {
+        // Validate webhook payload
+        if (webhookPayload == null || webhookPayload.getIssue() == null) {
+            log.error("Received invalid webhook payload: missing issue data");
+            return Map.of(
+                "status", "error",
+                "message", "Invalid webhook payload: missing issue data"
+            );
+        }
+
+        // Extract the issue from the webhook payload
+        GitHubIssue issue = webhookPayload.getIssue();
+
+        log.info("Received GitHub issue webhook for: {} (action: {})",
+                issue.getTitle(), webhookPayload.getAction());
 
         try {
             // Generate labels for the issue
@@ -58,14 +72,21 @@ public class GitHubWebhookController {
                 "status", "labels applied",
                 "labels_count", String.valueOf(labels.size()),
                 "similar_issues_count", String.valueOf(similarIssues.size()),
-                "stored_in_redis", "true"
+                "stored_in_redis", "true",
+                "action", webhookPayload.getAction(),
+                "repository", webhookPayload.getRepository() != null ?
+                    webhookPayload.getRepository().getFullName() : "unknown",
+                "issue_id", String.valueOf(issue.getId()),
+                "issue_number", String.valueOf(issue.getNumber())
             );
 
         } catch (Exception e) {
-            log.error("Error processing GitHub issue webhook for '{}': {}", issue.getTitle(), e.getMessage(), e);
+            log.error("Error processing GitHub issue webhook for '{}': {}",
+                issue.getTitle(), e.getMessage(), e);
             return Map.of(
                 "status", "error",
-                "message", "Failed to process issue: " + e.getMessage()
+                "message", "Failed to process issue: " + e.getMessage(),
+                "action", webhookPayload.getAction()
             );
         }
     }

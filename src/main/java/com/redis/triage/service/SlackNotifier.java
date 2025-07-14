@@ -1,6 +1,6 @@
 package com.redis.triage.service;
 
-import com.redis.triage.model.GitHubIssuePayload;
+import com.redis.triage.model.GitHubIssue;
 import com.redis.triage.model.SimilarIssue;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,11 +26,11 @@ public class SlackNotifier {
     /**
      * Sends a notification about a GitHub issue with generated labels and similar issues
      *
-     * @param issue The GitHub issue payload
+     * @param issue The GitHub issue
      * @param labels The generated labels for the issue
      * @param similarIssues List of similar issues found through semantic search
      */
-    public void sendNotification(GitHubIssuePayload issue, List<String> labels, List<SimilarIssue> similarIssues) {
+    public void sendNotification(GitHubIssue issue, List<String> labels, List<SimilarIssue> similarIssues) {
         log.info("Sending Slack notification for issue: {}", issue.getTitle());
 
         try {
@@ -61,12 +61,12 @@ public class SlackNotifier {
     /**
      * Composes a formatted Slack message for a GitHub issue with similar issues
      *
-     * @param issue The GitHub issue payload
+     * @param issue The GitHub issue
      * @param labels The generated labels for the issue
      * @param similarIssues List of similar issues found through semantic search
      * @return Formatted Slack message
      */
-    private String composeSlackMessageWithSimilarIssues(GitHubIssuePayload issue, List<String> labels, List<SimilarIssue> similarIssues) {
+    private String composeSlackMessageWithSimilarIssues(GitHubIssue issue, List<String> labels, List<SimilarIssue> similarIssues) {
         String title = issue.getTitle() != null ? issue.getTitle() : "Untitled Issue";
         String labelsText = labels != null && !labels.isEmpty() ?
             String.join(", ", labels) : "No labels";

@@ -2,7 +2,8 @@ package com.redis.triage;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.redis.triage.controller.GitHubWebhookController;
-import com.redis.triage.model.GitHubIssuePayload;
+import com.redis.triage.model.GitHubIssue;
+import com.redis.triage.model.GitHubWebhookPayload;
 import com.redis.triage.model.SimilarIssue;
 import com.redis.triage.service.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,6 +14,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -23,6 +25,8 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
 
@@ -70,9 +74,7 @@ class TriageWorkflowIT {
 
     // Test data
     private static final float[] MOCK_EMBEDDING = createMockEmbedding();
-    private static final String TEST_ISSUE_TITLE = "Redis connection timeout in production";
-    private static final String TEST_ISSUE_BODY = "Getting timeout errors when connecting to Redis cluster";
-    private static final List<String> EXPECTED_LABELS = List.of("bug", "jedis");
+    private static final List<String> EXPECTED_LABELS = List.of("bug", "lettuce");
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
@@ -94,19 +96,17 @@ class TriageWorkflowIT {
 
     @Test
     void shouldExecuteCompleteTriageWorkflow() throws Exception {
-        // Given: A GitHub issue payload
-        GitHubIssuePayload testIssue = GitHubIssuePayload.builder()
-                .title(TEST_ISSUE_TITLE)
-                .body(TEST_ISSUE_BODY)
-                .htmlUrl("https://github.com/test/repo/issues/123")
-                .build();
+        // Given: Load the webhook payload from file
+        String webhookJson = loadWebhookPayload();
 
-        String issueJson = objectMapper.writeValueAsString(testIssue);
+        // Parse to get the issue data for assertions
+        GitHubWebhookPayload webhookPayload = objectMapper.readValue(webhookJson, GitHubWebhookPayload.class);
+        GitHubIssue issue = webhookPayload.getIssue();
 
         // When: POST to webhook endpoint
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<String> request = new HttpEntity<>(issueJson, headers);
+        HttpEntity<String> request = new HttpEntity<>(webhookJson, headers);
 
         ResponseEntity<Map> response = restTemplate.postForEntity(
                 "http://localhost:" + port + "/webhook",
@@ -120,20 +120,24 @@ class TriageWorkflowIT {
         assertThat(response.getBody()).containsKey("labels_count");
         assertThat(response.getBody()).containsKey("similar_issues_count");
         assertThat(response.getBody()).containsEntry("stored_in_redis", "true");
+        assertThat(response.getBody()).containsEntry("action", "opened");
+        assertThat(response.getBody()).containsEntry("repository", "a-TODO-rov/ai-triage-assistant");
+        assertThat(response.getBody()).containsEntry("issue_id", String.valueOf(issue.getId()));
+        assertThat(response.getBody()).containsEntry("issue_number", String.valueOf(issue.getNumber()));
 
         // Verify LiteLLMClient was called for embedding generation
         verify(liteLLMClient, times(1)).generateEmbedding(
-                argThat(text -> text.contains(TEST_ISSUE_TITLE) && text.contains(TEST_ISSUE_BODY))
+                argThat(text -> text.contains(issue.getTitle()) && text.contains(issue.getBody()))
         );
 
         // Verify LiteLLMClient was called for label generation
         verify(liteLLMClient, times(1)).callLLM(
-                argThat(prompt -> prompt.contains("AI triage assistant") && 
-                                prompt.contains(TEST_ISSUE_TITLE))
+                argThat(prompt -> prompt.contains("AI triage assistant") &&
+                                prompt.contains(issue.getTitle()))
         );
 
         // Verify SlackNotifier was called with correct message including similar issues
-        ArgumentCaptor<GitHubIssuePayload> issueCaptor = ArgumentCaptor.forClass(GitHubIssuePayload.class);
+        ArgumentCaptor<GitHubIssue> issueCaptor = ArgumentCaptor.forClass(GitHubIssue.class);
         ArgumentCaptor<List<String>> labelsCaptor = ArgumentCaptor.forClass(List.class);
         ArgumentCaptor<List<SimilarIssue>> similarIssuesCaptor = ArgumentCaptor.forClass(List.class);
 
@@ -144,18 +148,19 @@ class TriageWorkflowIT {
         );
 
         // Verify captured arguments
-        GitHubIssuePayload capturedIssue = issueCaptor.getValue();
+        GitHubIssue capturedIssue = issueCaptor.getValue();
         List<String> capturedLabels = labelsCaptor.getValue();
         List<SimilarIssue> capturedSimilarIssues = similarIssuesCaptor.getValue();
 
-        assertThat(capturedIssue.getTitle()).isEqualTo(TEST_ISSUE_TITLE);
+        assertThat(capturedIssue.getTitle()).isEqualTo(issue.getTitle());
+        assertThat(capturedIssue.getId()).isEqualTo(issue.getId());
         assertThat(capturedLabels).containsExactlyInAnyOrderElementsOf(EXPECTED_LABELS);
         assertThat(capturedSimilarIssues).hasSize(2);
         assertThat(capturedSimilarIssues.get(0).getTitle()).isEqualTo("Redis cluster connection issues");
         assertThat(capturedSimilarIssues.get(1).getTitle()).isEqualTo("Jedis timeout in high load");
 
         // Verify semantic search functionality (using the read-only method to avoid double storage)
-        List<SimilarIssue> similarIssues = semanticSearchService.findSimilarIssues(testIssue, 3);
+        List<SimilarIssue> similarIssues = semanticSearchService.findSimilarIssues(issue, 3);
         assertThat(similarIssues).hasSizeGreaterThanOrEqualTo(2);
 
         // Verify that we can find the original mock issues
@@ -164,7 +169,7 @@ class TriageWorkflowIT {
         assertThat(foundTitles).contains("Jedis timeout in high load");
 
         // Verify labeling service functionality
-        List<String> generatedLabels = labelingService.generateLabels(testIssue);
+        List<String> generatedLabels = labelingService.generateLabels(issue);
         assertThat(generatedLabels).containsExactlyInAnyOrderElementsOf(EXPECTED_LABELS);
 
         // Verify the new issue was stored in Redis and can be found in future searches
@@ -172,9 +177,12 @@ class TriageWorkflowIT {
         Thread.sleep(200);
 
         // Create a slightly different issue to search for the stored one
-        GitHubIssuePayload searchIssue = GitHubIssuePayload.builder()
+        GitHubIssue searchIssue = GitHubIssue.builder()
                 .title("Redis timeout issues in production environment")
                 .body("Experiencing timeout problems with Redis cluster connections")
+                .id(9999L)
+                .number(9999)
+                .htmlUrl("https://github.com/test/repo/issues/9999")
                 .build();
 
         List<SimilarIssue> newSearchResults = semanticSearchService.findSimilarIssues(searchIssue, 5);
@@ -183,7 +191,12 @@ class TriageWorkflowIT {
 
         // Verify that the newly stored issue is now findable
         List<String> newFoundTitles = newSearchResults.stream().map(SimilarIssue::getTitle).toList();
-        assertThat(newFoundTitles).contains(TEST_ISSUE_TITLE);
+        assertThat(newFoundTitles).contains(issue.getTitle());
+    }
+
+    private String loadWebhookPayload() throws IOException {
+        ClassPathResource resource = new ClassPathResource("request/webhook_payload.json");
+        return Files.readString(resource.getFile().toPath());
     }
 
     private void setupMockResponses() {
@@ -192,10 +205,10 @@ class TriageWorkflowIT {
 
         // Mock label generation
         when(liteLLMClient.callLLM(argThat(prompt -> prompt.contains("AI triage assistant"))))
-                .thenReturn("bug, jedis");
+                .thenReturn("bug, lettuce");
 
         // Mock Slack notification (void method)
-        doNothing().when(slackNotifier).sendNotification(any(GitHubIssuePayload.class), anyList());
+        doNothing().when(slackNotifier).sendNotification(any(GitHubIssue.class), anyList(), anyList());
     }
 
     private void insertMockIssuesIntoRedis() {

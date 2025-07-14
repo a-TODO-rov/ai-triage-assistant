@@ -1,6 +1,6 @@
 package com.redis.triage.service;
 
-import com.redis.triage.model.GitHubIssuePayload;
+import com.redis.triage.model.GitHubIssue;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -22,10 +22,10 @@ public class LabelingService {
     /**
      * Generates appropriate labels for a GitHub issue
      *
-     * @param issue The GitHub issue payload
+     * @param issue The GitHub issue
      * @return List of suggested labels
      */
-    public List<String> generateLabels(GitHubIssuePayload issue) {
+    public List<String> generateLabels(GitHubIssue issue) {
         log.info("Generating labels for issue: {}", issue.getTitle());
 
         try {
@@ -52,10 +52,10 @@ public class LabelingService {
     /**
      * Builds the prompt for the LiteLLM API
      *
-     * @param issue The GitHub issue payload
+     * @param issue The GitHub issue
      * @return The formatted prompt string
      */
-    private String buildPrompt(GitHubIssuePayload issue) {
+    private String buildPrompt(GitHubIssue issue) {
         return String.format("""
             You are an AI triage assistant. Read the following GitHub issue and return relevant labels from this list:
             ['bug', 'feature', 'question', 'documentation', 'redis-cluster', 'jedis', 'lettuce', 'performance', 'regression']
