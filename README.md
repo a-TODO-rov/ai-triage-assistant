@@ -23,8 +23,8 @@ This project was built for **AI Week @ Redis** to streamline the process of mana
 |------------------|-------------------------------------|
 | Backend          | Java 24, Spring Boot 3.5            |
 | LLM Integration  | [LiteLLM](https://github.com/BerriAI/litellm) proxy to GPT-4 / Claude / Gemini |
-| Redis Vector DB  | Redis Stack (`redis/redis-stack-server`) |
-| Redis Client     | [JRedisStack](https://github.com/redis/jedis/tree/master/jedis-redis-stack) |
+| Redis Vector DB  | Redis                               |
+| Redis Client     | [redis/jedis](https://github.com/redis/jedis) |
 | GitHub           | Webhook API + GitHub Java API       |
 | Slack            | Incoming Webhooks                   |
 | Testing          | JUnit 5, Testcontainers, Mockito    |
