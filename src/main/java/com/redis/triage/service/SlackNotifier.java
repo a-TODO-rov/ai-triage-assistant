@@ -86,7 +86,7 @@ public class SlackNotifier {
 
         // Title with link
         String title = issue.getTitle() != null ? issue.getTitle() : "Untitled Issue";
-        String issueUrl = issue.getHtmlUrl() != null ? issue.getHtmlUrl() : "https://github.com/placeholder/issue";
+        String issueUrl = issue.getUrl() != null ? issue.getUrl() : "";
         messageBuilder.append(String.format("*🔗 Title:* [%s](%s)\n\n", title, issueUrl));
 
         // Labels section
@@ -124,8 +124,8 @@ public class SlackNotifier {
 
                 String issueNumber = similar.getNumber() != null ?
                     similar.getNumber().toString() : similar.getId().toString();
-                String similarUrl = similar.getHtmlUrl() != null ?
-                    similar.getHtmlUrl() : "https://github.com/placeholder/issue";
+                String similarUrl = similar.getUrl() != null ?
+                    similar.getUrl() : "";
                 String similarTitle = similar.getTitle() != null ?
                     similar.getTitle() : "Unknown Issue";
 

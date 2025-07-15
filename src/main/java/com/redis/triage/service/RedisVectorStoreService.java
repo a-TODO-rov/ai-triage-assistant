@@ -82,7 +82,7 @@ public class RedisVectorStoreService {
      * @param body The issue body
      * @param labels The issue labels
      */
-    public void storeEmbedding(String issueId, float[] embedding, String title, String body, List<String> labels) {
+    public void storeEmbedding(String issueId, float[] embedding, String title, String body, List<String> labels, String url) {
         log.info("Storing embedding for issue: {}", issueId);
 
         try {
@@ -95,6 +95,7 @@ public class RedisVectorStoreService {
             Map<String, String> hash = new HashMap<>();
             hash.put("title", title != null ? title : "");
             hash.put("body", body != null ? body : "");
+            hash.put("url", url != null ? url : "");
             hash.put("labels", labels != null ? String.join(",", labels) : "");
 
             // Store the hash fields

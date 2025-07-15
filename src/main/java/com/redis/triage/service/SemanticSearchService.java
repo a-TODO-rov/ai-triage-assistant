@@ -112,7 +112,8 @@ public class SemanticSearchService {
                 queryEmbedding,
                 issue.getTitle(),
                 issue.getBody(),
-                labels
+                labels,
+                issue.getUrl()
             );
             log.info("Successfully stored issue '{}' with ID '{}' in Redis", issue.getTitle(), issueId);
 
@@ -159,8 +160,8 @@ public class SemanticSearchService {
             // Extract title, body, and labels from metadata
             String title = metadata.getOrDefault("title", "Unknown Title");
             String body = metadata.getOrDefault("body", "");
-            String htmlUrl = metadata.getOrDefault("html_url", "");
             String labelsString = metadata.getOrDefault("labels", "");
+            String url = metadata.getOrDefault("url", "");
             List<String> labels = parseLabels(labelsString);
 
             // Build a minimal GitHubIssue with available metadata
@@ -168,7 +169,7 @@ public class SemanticSearchService {
                     .id(Long.parseLong(issueId))
                     .title(title)
                     .body(body)
-                    .htmlUrl(htmlUrl)
+                    .url(url)
                     .labels(labels.stream()
                             .map(labelName -> GitHubLabel.builder()
                                     .name(labelName)
