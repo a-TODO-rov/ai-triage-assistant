@@ -2,8 +2,8 @@ package com.redis.triage;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.redis.triage.controller.GitHubWebhookController;
-import com.redis.triage.model.GitHubIssue;
-import com.redis.triage.model.GitHubWebhookPayload;
+import com.redis.triage.model.webhook.GitHubIssue;
+import com.redis.triage.model.webhook.GitHubWebhookPayload;
 import com.redis.triage.service.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -217,7 +217,8 @@ class TriageWorkflowIT {
                 createSimilarEmbedding(0.1f),
                 "Redis cluster connection issues",
                 "Having trouble connecting to Redis cluster in production environment",
-                List.of("bug", "redis-cluster")
+                List.of("bug", "redis-cluster"),
+                "https://api.github.com/repos/a-TODO-rov/ai-triage-assistant/issues/1"
         );
 
         // Insert second mock issue
@@ -226,7 +227,8 @@ class TriageWorkflowIT {
                 createSimilarEmbedding(0.2f),
                 "Jedis timeout in high load",
                 "Jedis client timing out under high load conditions",
-                List.of("performance", "jedis")
+                List.of("performance", "jedis"),
+                "https://api.github.com/repos/a-TODO-rov/ai-triage-assistant/issues/2"
         );
 
         // Wait a bit for Redis to process the data
