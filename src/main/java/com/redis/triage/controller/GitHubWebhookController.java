@@ -3,6 +3,7 @@ package com.redis.triage.controller;
 import com.redis.triage.model.GitHubWebhookPayload;
 import com.redis.triage.model.GitHubIssue;
 import com.redis.triage.service.GitHubService;
+import com.redis.triage.service.AISummaryService;
 import com.redis.triage.service.LabelingService;
 import com.redis.triage.service.SemanticSearchService;
 import com.redis.triage.service.SlackNotifier;
@@ -30,6 +31,7 @@ public class GitHubWebhookController {
     private final SemanticSearchService semanticSearchService;
     private final SlackNotifier slackNotifier;
     private final GitHubService gitHubService;
+    private final AISummaryService aiSummaryService;
 
     /**
      * Handles GitHub issue webhook events
@@ -66,14 +68,19 @@ public class GitHubWebhookController {
                 similarIssues.size(), issue.getTitle(),
                 similarIssues.stream().map(GitHubIssue::getTitle).toList());
 
-            // Send notification to Slack with similar issues
-            slackNotifier.sendNotification(issue, labels, similarIssues);
-            log.info("Successfully sent Slack notification with similar issues for: {}", issue.getTitle());
+            // Generate AI summary with context from similar issues
+            String aiSummary = aiSummaryService.generateSummaryWithContext(issue, labels, similarIssues);
+            log.info("Generated AI summary for issue '{}': {}", issue.getTitle(), aiSummary);
+
+            // Send notification to Slack with similar issues and AI summary
+            slackNotifier.sendNotification(issue, labels, similarIssues, aiSummary);
+            log.info("Successfully sent Slack notification with AI summary and similar issues for: {}", issue.getTitle());
 
             return Map.of(
                 "status", "labels applied",
                 "labels_count", String.valueOf(labels.size()),
                 "similar_issues_count", String.valueOf(similarIssues.size()),
+                "ai_summary_generated", "true",
                 "stored_in_redis", "true",
                 "action", webhookPayload.getAction(),
                 "repository", webhookPayload.getRepository() != null ?

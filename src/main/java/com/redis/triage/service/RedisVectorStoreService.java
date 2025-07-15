@@ -111,47 +111,6 @@ public class RedisVectorStoreService {
     }
 
     /**
-     * Searches for similar issues based on a query vector
-     *
-     * @param queryVector The query vector for similarity search
-     * @param k The number of similar results to return
-     * @return List of similar issue IDs
-     */
-    public List<String> searchSimilar(float[] queryVector, int k) {
-        log.info("Searching for {} similar issues", k);
-
-        try {
-            // Convert query vector to byte array
-            byte[] queryBytes = floatArrayToByteArray(queryVector);
-
-            // Build the KNN query
-            String knnQuery = String.format("*=>[KNN %d @embedding $BLOB]", k);
-
-            Query query = new Query(knnQuery)
-                .addParam("BLOB", queryBytes)
-                .returnFields("title", "labels")
-                .setSortBy("__embedding_score", true)
-                .limit(0, k);
-
-            SearchResult result = jedis.ftSearch(INDEX_NAME, query);
-
-            List<String> issueIds = new ArrayList<>();
-            for (Document doc : result.getDocuments()) {
-                // Extract issue ID from the key (remove "issue:" prefix)
-                String issueId = doc.getId().substring(KEY_PREFIX.length());
-                issueIds.add(issueId);
-            }
-
-            log.info("Found {} similar issues", issueIds.size());
-            return issueIds;
-
-        } catch (Exception e) {
-            log.error("Failed to search for similar issues: {}", e.getMessage(), e);
-            return List.of();
-        }
-    }
-
-    /**
      * Converts a float array to byte array for Redis storage
      *
      * @param floats The float array to convert
@@ -164,17 +123,6 @@ public class RedisVectorStoreService {
             buffer.putFloat(f);
         }
         return buffer.array();
-    }
-
-    /**
-     * Legacy method for backward compatibility
-     *
-     * @param issueId The unique identifier for the issue
-     * @param embedding The vector embedding as float array
-     * @param text The original text that was embedded
-     */
-    public void storeEmbedding(String issueId, float[] embedding, String text) {
-        storeEmbedding(issueId, embedding, text, "", List.of());
     }
 
     /**
@@ -235,17 +183,5 @@ public class RedisVectorStoreService {
             log.error("Failed to retrieve metadata for issue key '{}': {}", issueKey, e.getMessage(), e);
             return Map.of();
         }
-    }
-
-    /**
-     * Legacy method for backward compatibility
-     *
-     * @param query The search query
-     * @param k The number of similar results to return
-     * @return List of similar issue IDs
-     */
-    public List<String> searchSimilar(String query, int k) {
-        log.warn("String-based search not implemented, use vector-based search instead");
-        return List.of();
     }
 }

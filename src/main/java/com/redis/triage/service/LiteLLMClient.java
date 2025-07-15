@@ -38,39 +38,48 @@ public class LiteLLMClient {
      * @return The embedding vector as float array
      */
     public float[] generateEmbedding(String text) {
-        log.info("Generating embedding for text using LiteLLM API");
+        log.info("Generating embedding for text with LiteLLM");
         log.debug("Text content: {}", text);
 
         try {
-            // Prepare the request payload for embeddings
             Map<String, Object> requestBody = Map.of(
-                "model", "text-embedding-ada-002",
+                "model", "text-embedding-3-small",
                 "input", text
             );
 
-            // Make the API call to embeddings endpoint
-            Mono<Map> responseMono = liteLLMWebClient
-                .post()
-                .uri("/v1/embeddings")
-                .bodyValue(requestBody)
-                .retrieve()
-                .bodyToMono(Map.class);
+            log.debug("Embedding request payload: {}", requestBody);
 
-            Map<String, Object> response = responseMono.block();
+            Map<String, Object> response = liteLLMWebClient
+                    .post()
+                    .uri("/v1/embeddings")
+                    .bodyValue(requestBody)
+                    .retrieve()
+                    .onStatus(status -> status.is4xxClientError(), clientResponse ->
+                            clientResponse.bodyToMono(String.class).flatMap(errorBody -> {
+                                log.error("LiteLLM 4xx error: {}", errorBody);
+                                return Mono.error(new RuntimeException("Client error: " + errorBody));
+                            })
+                    )
+                    .onStatus(status -> status.is5xxServerError(), clientResponse ->
+                            clientResponse.bodyToMono(String.class).flatMap(errorBody -> {
+                                log.error("LiteLLM 5xx error: {}", errorBody);
+                                return Mono.error(new RuntimeException("Server error: " + errorBody));
+                            })
+                    )
+                    .bodyToMono(Map.class)
+                    .block();
 
-            if (response == null) {
-                log.error("Received null response from LiteLLM embeddings API");
+            if (response == null || !response.containsKey("data")) {
+                log.error("Invalid response from LiteLLM embeddings API: {}", response);
                 return new float[0];
             }
 
-            // Extract the embedding from the response
             float[] embedding = extractEmbeddingFromResponse(response);
-            log.info("Successfully generated embedding with {} dimensions", embedding.length);
-
+            log.info("Received embedding of dimension {}", embedding.length);
             return embedding;
 
         } catch (Exception e) {
-            log.error("Error generating embedding from LiteLLM API: {}", e.getMessage(), e);
+            log.error("LiteLLM embedding call failed: {}", e.getMessage(), e);
             return new float[0];
         }
     }
