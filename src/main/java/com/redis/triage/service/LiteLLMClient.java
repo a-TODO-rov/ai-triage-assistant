@@ -1,14 +1,15 @@
 package com.redis.triage.service;
 
+import com.redis.triage.client.LiteLLMFeignClient;
+import com.redis.triage.model.feign.LiteLLMChatRequest;
+import com.redis.triage.model.feign.LiteLLMChatResponse;
+import com.redis.triage.model.feign.LiteLLMEmbeddingRequest;
+import com.redis.triage.model.feign.LiteLLMEmbeddingResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * Service for interacting with LiteLLM API
@@ -18,8 +19,7 @@ import java.util.Map;
 @Slf4j
 public class LiteLLMClient {
 
-    @Qualifier("liteLLMWebClient")
-    private final WebClient liteLLMWebClient;
+    private final LiteLLMFeignClient liteLLMFeignClient;
 
     /**
      * Sends a prompt to LiteLLM and returns the response
@@ -42,24 +42,17 @@ public class LiteLLMClient {
         log.debug("Text content: {}", text);
 
         try {
-            // Prepare the request payload for embeddings
-            Map<String, Object> requestBody = Map.of(
-                "model", "text-embedding-ada-002",
-                "input", text
-            );
+            // Prepare the request
+            LiteLLMEmbeddingRequest request = LiteLLMEmbeddingRequest.builder()
+                .model("text-embedding-3-small")
+                .input(text)
+                .build();
 
-            // Make the API call to embeddings endpoint
-            Mono<Map> responseMono = liteLLMWebClient
-                .post()
-                .uri("/v1/embeddings")
-                .bodyValue(requestBody)
-                .retrieve()
-                .bodyToMono(Map.class);
+            // Make the API call
+            LiteLLMEmbeddingResponse response = liteLLMFeignClient.embeddings(request);
 
-            Map<String, Object> response = responseMono.block();
-
-            if (response == null) {
-                log.error("Received null response from LiteLLM embeddings API");
+            if (response == null || response.getData() == null || response.getData().isEmpty()) {
+                log.error("Received null or empty response from LiteLLM embeddings API");
                 return new float[0];
             }
 
@@ -86,27 +79,23 @@ public class LiteLLMClient {
         log.debug("Prompt content: {}", prompt);
 
         try {
-            // Prepare the request payload
-            Map<String, Object> requestBody = Map.of(
-                "model", "gpt-4",
-                "messages", List.of(
-                    Map.of("role", "user", "content", prompt)
-                ),
-                "temperature", 0.3
-            );
+            // Prepare the request
+            LiteLLMChatRequest.ChatMessage message = LiteLLMChatRequest.ChatMessage.builder()
+                .role("user")
+                .content(prompt)
+                .build();
+
+            LiteLLMChatRequest request = LiteLLMChatRequest.builder()
+                .model("gpt-4")
+                .messages(List.of(message))
+                .temperature(0.3)
+                .build();
 
             // Make the API call
-            Mono<Map> responseMono = liteLLMWebClient
-                .post()
-                .uri("/v1/chat/completions")
-                .bodyValue(requestBody)
-                .retrieve()
-                .bodyToMono(Map.class);
+            LiteLLMChatResponse response = liteLLMFeignClient.chatCompletions(request);
 
-            Map<String, Object> response = responseMono.block();
-
-            if (response == null) {
-                log.error("Received null response from LiteLLM API");
+            if (response == null || response.getChoices() == null || response.getChoices().isEmpty()) {
+                log.error("Received null or empty response from LiteLLM API");
                 return "Error: No response from LiteLLM API";
             }
 
@@ -126,16 +115,14 @@ public class LiteLLMClient {
     /**
      * Extracts the embedding from the LiteLLM embeddings API response
      *
-     * @param response The response map from the embeddings API
+     * @param response The response from the embeddings API
      * @return The extracted embedding as float array
      */
-    @SuppressWarnings("unchecked")
-    private float[] extractEmbeddingFromResponse(Map<String, Object> response) {
+    private float[] extractEmbeddingFromResponse(LiteLLMEmbeddingResponse response) {
         try {
-            List<Map<String, Object>> data = (List<Map<String, Object>>) response.get("data");
-            if (data != null && !data.isEmpty()) {
-                Map<String, Object> firstEmbedding = data.get(0);
-                List<Double> embeddingList = (List<Double>) firstEmbedding.get("embedding");
+            if (response.getData() != null && !response.getData().isEmpty()) {
+                LiteLLMEmbeddingResponse.EmbeddingData firstEmbedding = response.getData().get(0);
+                List<Double> embeddingList = firstEmbedding.getEmbedding();
                 if (embeddingList != null) {
                     float[] embedding = new float[embeddingList.size()];
                     for (int i = 0; i < embeddingList.size(); i++) {
@@ -155,19 +142,16 @@ public class LiteLLMClient {
     /**
      * Extracts the content from the LiteLLM API response
      *
-     * @param response The response map from the API
+     * @param response The response from the API
      * @return The extracted content string
      */
-    @SuppressWarnings("unchecked")
-    private String extractContentFromResponse(Map<String, Object> response) {
+    private String extractContentFromResponse(LiteLLMChatResponse response) {
         try {
-            List<Map<String, Object>> choices = (List<Map<String, Object>>) response.get("choices");
-            if (choices != null && !choices.isEmpty()) {
-                Map<String, Object> firstChoice = choices.get(0);
-                Map<String, Object> message = (Map<String, Object>) firstChoice.get("message");
-                if (message != null) {
-                    Object content = message.get("content");
-                    return content != null ? content.toString() : "No content in response";
+            if (response.getChoices() != null && !response.getChoices().isEmpty()) {
+                LiteLLMChatResponse.Choice firstChoice = response.getChoices().get(0);
+                LiteLLMChatResponse.Message message = firstChoice.getMessage();
+                if (message != null && message.getContent() != null) {
+                    return message.getContent();
                 }
             }
             log.warn("Unexpected response structure from LiteLLM API: {}", response);

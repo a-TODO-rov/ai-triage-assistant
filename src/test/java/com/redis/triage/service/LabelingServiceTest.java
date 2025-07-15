@@ -1,8 +1,8 @@
 package com.redis.triage.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.redis.triage.model.GitHubIssue;
-import com.redis.triage.model.Label;
+import com.redis.triage.model.webhook.GitHubIssue;
+import com.redis.triage.model.feign.Label;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

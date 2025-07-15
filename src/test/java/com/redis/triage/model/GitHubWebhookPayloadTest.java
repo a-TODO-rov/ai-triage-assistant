@@ -2,6 +2,7 @@ package com.redis.triage.model;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.redis.triage.model.webhook.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
 

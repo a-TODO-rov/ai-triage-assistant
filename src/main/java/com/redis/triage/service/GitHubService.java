@@ -1,19 +1,15 @@
 package com.redis.triage.service;
 
-import com.redis.triage.model.GitHubIssue;
-import com.redis.triage.model.Label;
+import com.redis.triage.model.webhook.GitHubIssue;
+import com.redis.triage.client.GitHubFeignClient;
+import com.redis.triage.model.feign.Label;
+import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
-import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Service for interacting with GitHub API
@@ -23,8 +19,7 @@ import java.util.Map;
 @Slf4j
 public class GitHubService {
 
-    @Qualifier("githubWebClient")
-    private final WebClient githubWebClient;
+    private final GitHubFeignClient gitHubFeignClient;
 
     /**
      * Fetches labels from a GitHub repository
@@ -39,19 +34,20 @@ public class GitHubService {
         }
 
         try {
-            // Extract the repository path from the URL and construct labels endpoint
-            String labelsUrl = constructLabelsUrl(repositoryUrl);
-            log.info("Fetching labels from: {}", labelsUrl);
+            // Extract owner and repo from the URL
+            String[] ownerAndRepo = extractOwnerAndRepo(repositoryUrl);
+            if (ownerAndRepo == null) {
+                log.warn("Could not extract owner and repo from URL: {}", repositoryUrl);
+                return List.of();
+            }
+
+            String owner = ownerAndRepo[0];
+            String repo = ownerAndRepo[1];
+            log.info("Fetching labels from repository: {}/{}", owner, repo);
 
             // Make the API call to fetch labels
-            Mono<List<Label>> responseMono = githubWebClient
-                .get()
-                .uri(labelsUrl)
-                .retrieve()
-                .bodyToMono(new ParameterizedTypeReference<List<Label>>() {});
+            List<Label> labels = gitHubFeignClient.getRepositoryLabels(owner, repo);
 
-            List<Label> labels = responseMono.block();
-            
             if (labels != null) {
                 log.info("Successfully fetched {} labels from repository", labels.size());
                 log.debug("Fetched labels: {}", labels.stream().map(Label::getName).toList());
@@ -61,8 +57,8 @@ public class GitHubService {
                 return List.of();
             }
 
-        } catch (WebClientResponseException e) {
-            log.error("GitHub API error when fetching labels: {} - {}", e.getStatusCode(), e.getMessage());
+        } catch (FeignException e) {
+            log.error("GitHub API error when fetching labels: {} - {}", e.status(), e.getMessage());
             return List.of();
         } catch (Exception e) {
             log.error("Error fetching repository labels: {}", e.getMessage(), e);
@@ -71,35 +67,47 @@ public class GitHubService {
     }
 
     /**
-     * Constructs the labels URL from a GitHub URL (repository or issue)
+     * Extracts owner and repository name from a GitHub URL
      *
      * @param githubUrl The GitHub URL (repository or issue)
-     * @return The labels endpoint URL
+     * @return Array with [owner, repo] or null if extraction fails
      */
-    private String constructLabelsUrl(String githubUrl) {
+    private String[] extractOwnerAndRepo(String githubUrl) {
         if (githubUrl == null || githubUrl.isEmpty()) {
-            return "";
+            return null;
         }
 
-        // Handle different URL types:
-        // Repository URL format: https://api.github.com/repos/owner/repo
-        // Issue URL format: https://api.github.com/repos/owner/repo/issues/123
+        try {
+            // Handle different URL types:
+            // Repository URL format: https://api.github.com/repos/owner/repo
+            // Issue URL format: https://api.github.com/repos/owner/repo/issues/123
 
-        if (githubUrl.startsWith("https://api.github.com")) {
-            // Remove the base URL to get the path
-            String path = githubUrl.replace("https://api.github.com", "");
+            String path;
+            if (githubUrl.startsWith("https://api.github.com")) {
+                // Remove the base URL to get the path
+                path = githubUrl.replace("https://api.github.com", "");
+            } else {
+                // Assume it's already a path
+                path = githubUrl;
+            }
 
-            // Check if it's an issue URL
-            if (path.contains("/issues/")) {
-                return path + "/labels";
+            // Remove leading slash if present
+            if (path.startsWith("/")) {
+                path = path.substring(1);
             }
-            // Repository URL
-            else {
-                return path + "/labels";
+
+            // Expected format: repos/owner/repo or repos/owner/repo/issues/123
+            String[] parts = path.split("/");
+            if (parts.length >= 3 && "repos".equals(parts[0])) {
+                return new String[]{parts[1], parts[2]};
             }
-        } else {
-            // Fallback: assume it's already a path
-            return githubUrl + "/labels";
+
+            log.warn("Unexpected GitHub URL format: {}", githubUrl);
+            return null;
+
+        } catch (Exception e) {
+            log.error("Error extracting owner and repo from URL '{}': {}", githubUrl, e.getMessage());
+            return null;
         }
     }
 
@@ -139,24 +147,29 @@ public class GitHubService {
         }
 
         try {
+            // Extract owner and repo from the URL
+            String[] ownerAndRepo = extractOwnerAndRepo(repositoryUrl);
+            if (ownerAndRepo == null) {
+                log.warn("Could not extract owner and repo from URL: {}", repositoryUrl);
+                return List.of();
+            }
+
+            String owner = ownerAndRepo[0];
+            String repo = ownerAndRepo[1];
+            log.info("Fetching issues from repository: {}/{}", owner, repo);
+
             List<GitHubIssue> allIssues = new ArrayList<>();
             int page = 1;
             int maxPages = 5; // Limit to first 5 pages (500 issues max) for LLM context
             int perPage = 100;
 
             while (page <= maxPages) {
-                // Construct the paginated issues URL
-                String issuesUrl = constructIssuesUrl(repositoryUrl, page, perPage);
-                log.debug("Fetching issues from page {}: {}", page, issuesUrl);
+                log.debug("Fetching issues from page {} for repository {}/{}", page, owner, repo);
 
-                // Make the API call to fetch issues for this page
-                Mono<List<GitHubIssue>> responseMono = githubWebClient
-                    .get()
-                    .uri(issuesUrl)
-                    .retrieve()
-                    .bodyToMono(new ParameterizedTypeReference<List<GitHubIssue>>() {});
-
-                List<GitHubIssue> pageIssues = responseMono.block();
+                // Make the API call to fetch issues for this page using Feign client
+                List<GitHubIssue> pageIssues = gitHubFeignClient.getRepositoryIssues(
+                    owner, repo, "all", "updated", "desc", perPage, page
+                );
 
                 if (pageIssues == null || pageIssues.isEmpty()) {
                     log.debug("No more issues found on page {}, stopping pagination", page);
@@ -182,48 +195,13 @@ public class GitHubService {
 
             return allIssues;
 
-        } catch (WebClientResponseException e) {
-            log.error("GitHub API error when fetching issues: {} - {}", e.getStatusCode(), e.getMessage());
+        } catch (FeignException e) {
+            log.error("GitHub API error when fetching issues: {} - {}", e.status(), e.getMessage());
             return List.of();
         } catch (Exception e) {
             log.error("Error fetching repository issues: {}", e.getMessage(), e);
             return List.of();
         }
-    }
-
-    /**
-     * Constructs the issues URL from a GitHub repository URL with pagination support
-     *
-     * @param repositoryUrl The GitHub repository URL
-     * @param page The page number (1-based)
-     * @param perPage The number of items per page
-     * @return The issues endpoint URL with pagination parameters
-     */
-    private String constructIssuesUrl(String repositoryUrl, int page, int perPage) {
-        if (repositoryUrl == null || repositoryUrl.isEmpty()) {
-            return "";
-        }
-
-        // Handle different URL types:
-        // Repository URL format: https://api.github.com/repos/owner/repo
-        if (repositoryUrl.startsWith("https://api.github.com")) {
-            // Remove the base URL to get the path
-            String path = repositoryUrl.replace("https://api.github.com", "");
-            return path + "/issues?state=all&sort=updated&direction=desc&per_page=" + perPage + "&page=" + page;
-        } else {
-            // Fallback: assume it's already a path
-            return repositoryUrl + "/issues?state=all&sort=updated&direction=desc&per_page=" + perPage + "&page=" + page;
-        }
-    }
-
-    /**
-     * Constructs the issues URL from a GitHub repository URL (backward compatibility)
-     *
-     * @param repositoryUrl The GitHub repository URL
-     * @return The issues endpoint URL
-     */
-    private String constructIssuesUrl(String repositoryUrl) {
-        return constructIssuesUrl(repositoryUrl, 1, 100);
     }
 
     /**
