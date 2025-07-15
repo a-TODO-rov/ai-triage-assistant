@@ -7,6 +7,7 @@ import com.redis.triage.model.IssueContext;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -21,6 +22,9 @@ import java.util.List;
 public class GitHubService {
 
     private final GitHubFeignClient gitHubFeignClient;
+
+    @Value("${GITHUB_TOKEN:}")
+    private String githubToken;
 
     /**
      * Fetches labels from a GitHub repository
@@ -47,7 +51,7 @@ public class GitHubService {
             log.info("Fetching labels from repository: {}/{}", owner, repo);
 
             // Make the API call to fetch labels
-            List<Label> labels = gitHubFeignClient.getRepositoryLabels(owner, repo);
+            List<Label> labels = gitHubFeignClient.getRepositoryLabels(owner, repo, githubToken);
 
             if (labels != null) {
                 log.info("Successfully fetched {} labels from repository", labels.size());
@@ -167,7 +171,7 @@ public class GitHubService {
 
             // Make the API call to fetch issues for this label (limit to 1 per page)
             List<GitHubIssue> issues = gitHubFeignClient.getRepositoryIssuesByLabel(
-                owner, repo, labelName, "all", "updated", "desc", 1, 1
+                owner, repo, labelName, "all", "updated", "desc", 1, 1, githubToken
             );
 
             if (issues == null || issues.isEmpty()) {

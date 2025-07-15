@@ -6,6 +6,7 @@ import com.redis.triage.model.webhook.GitHubIssue;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
@@ -28,7 +29,7 @@ public interface GitHubFeignClient {
      * @return List of labels from the repository
      */
     @GetMapping("/repos/{owner}/{repo}/labels")
-    List<Label> getRepositoryLabels(@PathVariable("owner") String owner, @PathVariable("repo") String repo);
+    List<Label> getRepositoryLabels(@PathVariable("owner") String owner, @PathVariable("repo") String repo , @RequestHeader("Authorization") String authorization);
 
     /**
      * Fetches issues from a GitHub repository filtered by label
@@ -52,6 +53,7 @@ public interface GitHubFeignClient {
         @RequestParam("sort") String sort,
         @RequestParam("direction") String direction,
         @RequestParam("per_page") int perPage,
-        @RequestParam("page") int page
+        @RequestParam("page") int page,
+        @RequestHeader("Authorization") String authorization
     );
 }
