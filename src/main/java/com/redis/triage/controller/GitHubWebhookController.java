@@ -1,7 +1,7 @@
 package com.redis.triage.controller;
 
-import com.redis.triage.model.GitHubWebhookPayload;
-import com.redis.triage.model.GitHubIssue;
+import com.redis.triage.model.webhook.GitHubWebhookPayload;
+import com.redis.triage.model.webhook.GitHubIssue;
 import com.redis.triage.service.GitHubService;
 import com.redis.triage.service.AISummaryService;
 import com.redis.triage.service.LabelingService;

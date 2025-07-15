@@ -1,4 +1,4 @@
-package com.redis.triage.model;
+package com.redis.triage.model.feign;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;

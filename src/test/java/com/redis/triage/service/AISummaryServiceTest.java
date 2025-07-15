@@ -1,6 +1,6 @@
 package com.redis.triage.service;
 
-import com.redis.triage.model.GitHubIssue;
+import com.redis.triage.model.webhook.GitHubIssue;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

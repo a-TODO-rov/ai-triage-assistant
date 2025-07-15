@@ -1,6 +1,6 @@
 package com.redis.triage.service;
 
-import com.redis.triage.model.GitHubIssue;
+import com.redis.triage.model.webhook.GitHubIssue;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

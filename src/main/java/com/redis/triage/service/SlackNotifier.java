@@ -1,15 +1,13 @@
 package com.redis.triage.service;
 
-import com.redis.triage.model.GitHubIssue;
+import com.redis.triage.client.SlackFeignClient;
+import com.redis.triage.model.feign.SlackWebhookRequest;
+import com.redis.triage.model.webhook.GitHubIssue;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * Service for sending notifications to Slack via webhook
@@ -19,8 +17,7 @@ import java.util.Map;
 @Slf4j
 public class SlackNotifier {
 
-    @Qualifier("slackWebClient")
-    private final WebClient slackWebClient;
+    private final SlackFeignClient slackFeignClient;
 
     /**
      * Sends a notification about a GitHub issue with generated labels and similar issues
@@ -49,17 +46,13 @@ public class SlackNotifier {
             String message = composeSlackMessage(issue, labels, similarIssues, aiSummary);
             log.debug("Composed Slack message: {}", message);
 
-            // Build JSON payload
-            Map<String, String> payload = Map.of("text", message);
+            // Build request
+            SlackWebhookRequest request = SlackWebhookRequest.builder()
+                .text(message)
+                .build();
 
             // Send the notification
-            Mono<String> responseMono = slackWebClient
-                .post()
-                .bodyValue(payload)
-                .retrieve()
-                .bodyToMono(String.class);
-
-            String response = responseMono.block();
+            String response = slackFeignClient.sendMessage(request);
             log.info("Successfully sent Slack notification for issue: {}", issue.getTitle());
             log.debug("Slack API response: {}", response);
 

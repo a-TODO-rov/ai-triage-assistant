@@ -1,13 +1,12 @@
 package com.redis.triage.service;
 
-import com.redis.triage.model.GitHubIssue;
+import com.redis.triage.client.SlackFeignClient;
+import com.redis.triage.model.webhook.GitHubIssue;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 
 import java.util.List;
 
@@ -21,22 +20,13 @@ import static org.mockito.Mockito.*;
 class SlackNotifierTest {
 
     @Mock
-    private WebClient slackWebClient;
-
-    @Mock
-    private WebClient.RequestBodyUriSpec requestBodyUriSpec;
-
-    @Mock
-    private WebClient.RequestHeadersSpec requestHeadersSpec;
-
-    @Mock
-    private WebClient.ResponseSpec responseSpec;
+    private SlackFeignClient slackFeignClient;
 
     private SlackNotifier slackNotifier;
 
     @BeforeEach
     void setUp() {
-        slackNotifier = new SlackNotifier(slackWebClient);
+        slackNotifier = new SlackNotifier(slackFeignClient);
     }
 
     @Test
@@ -70,20 +60,14 @@ class SlackNotifierTest {
 
         String aiSummary = "This issue appears to be related to Redis cluster performance.\nThe user is experiencing slow response times.";
 
-        // Mock WebClient chain
-        when(slackWebClient.post()).thenReturn(requestBodyUriSpec);
-        when(requestBodyUriSpec.bodyValue(any())).thenReturn(requestHeadersSpec);
-        when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.bodyToMono(String.class)).thenReturn(Mono.just("ok"));
+        // Mock Feign client
+        when(slackFeignClient.sendMessage(any())).thenReturn("ok");
 
         // Act
         slackNotifier.sendNotification(issue, labels, similarIssues, aiSummary);
 
         // Assert
-        verify(slackWebClient).post();
-        verify(requestBodyUriSpec).bodyValue(any());
-        verify(requestHeadersSpec).retrieve();
-        verify(responseSpec).bodyToMono(String.class);
+        verify(slackFeignClient).sendMessage(any());
     }
 
     @Test
@@ -94,20 +78,14 @@ class SlackNotifierTest {
                 .title("Minimal Issue")
                 .build();
 
-        // Mock WebClient chain
-        when(slackWebClient.post()).thenReturn(requestBodyUriSpec);
-        when(requestBodyUriSpec.bodyValue(any())).thenReturn(requestHeadersSpec);
-        when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.bodyToMono(String.class)).thenReturn(Mono.just("ok"));
+        // Mock Feign client
+        when(slackFeignClient.sendMessage(any())).thenReturn("ok");
 
         // Act
         slackNotifier.sendNotification(issue, List.of(), List.of(), null);
 
         // Assert
-        verify(slackWebClient).post();
-        verify(requestBodyUriSpec).bodyValue(any());
-        verify(requestHeadersSpec).retrieve();
-        verify(responseSpec).bodyToMono(String.class);
+        verify(slackFeignClient).sendMessage(any());
     }
 
     @Test
@@ -122,19 +100,13 @@ class SlackNotifierTest {
         List<String> labels = List.of("feature");
         List<GitHubIssue> similarIssues = List.of();
 
-        // Mock WebClient chain
-        when(slackWebClient.post()).thenReturn(requestBodyUriSpec);
-        when(requestBodyUriSpec.bodyValue(any())).thenReturn(requestHeadersSpec);
-        when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.bodyToMono(String.class)).thenReturn(Mono.just("ok"));
+        // Mock Feign client
+        when(slackFeignClient.sendMessage(any())).thenReturn("ok");
 
         // Act - using the old method signature (without AI summary)
         slackNotifier.sendNotification(issue, labels, similarIssues);
 
         // Assert
-        verify(slackWebClient).post();
-        verify(requestBodyUriSpec).bodyValue(any());
-        verify(requestHeadersSpec).retrieve();
-        verify(responseSpec).bodyToMono(String.class);
+        verify(slackFeignClient).sendMessage(any());
     }
 }

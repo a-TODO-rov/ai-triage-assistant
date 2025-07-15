@@ -1,4 +1,4 @@
-package com.redis.triage.model;
+package com.redis.triage.model.webhook;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

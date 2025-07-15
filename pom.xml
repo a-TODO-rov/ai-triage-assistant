@@ -67,10 +67,6 @@
             <version>1.318</version>
         </dependency>
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-webflux</artifactId>
-        </dependency>
-        <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <version>1.18.38</version>
@@ -145,7 +141,8 @@
                         </exclude>
                     </excludes>
                 </configuration>
-            </plugin>        </plugins>
+            </plugin>
+        </plugins>
     </build>
 
 </project>
