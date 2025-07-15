@@ -31,21 +31,23 @@ public interface GitHubFeignClient {
     List<Label> getRepositoryLabels(@PathVariable("owner") String owner, @PathVariable("repo") String repo);
 
     /**
-     * Fetches issues from a GitHub repository with pagination support
+     * Fetches issues from a GitHub repository filtered by label
      *
      * @param owner The repository owner
      * @param repo The repository name
+     * @param labels Comma-separated list of label names to filter by
      * @param state The state of issues to fetch (all, open, closed)
      * @param sort The sort field (created, updated, comments)
      * @param direction The sort direction (asc, desc)
      * @param perPage The number of items per page (max 100)
      * @param page The page number (1-based)
-     * @return List of issues from the repository
+     * @return List of issues from the repository with the specified labels
      */
     @GetMapping("/repos/{owner}/{repo}/issues")
-    List<GitHubIssue> getRepositoryIssues(
+    List<GitHubIssue> getRepositoryIssuesByLabel(
         @PathVariable("owner") String owner,
         @PathVariable("repo") String repo,
+        @RequestParam("labels") String labels,
         @RequestParam("state") String state,
         @RequestParam("sort") String sort,
         @RequestParam("direction") String direction,

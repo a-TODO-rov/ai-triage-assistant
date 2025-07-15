@@ -3,6 +3,7 @@ package com.redis.triage.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.redis.triage.model.webhook.GitHubIssue;
 import com.redis.triage.model.feign.Label;
+import com.redis.triage.model.IssueContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -49,27 +50,30 @@ class LabelingServiceTest {
                 .build();
 
         String repositoryUrl = "https://api.github.com/repos/redis/jedis";
-        
+
         // Mock cached labels
         List<Label> cachedLabels = List.of(
                 Label.builder().name("bug").description("Something isn't working").build(),
                 Label.builder().name("redis-cluster").description("Related to Redis cluster").build()
         );
         String cachedLabelsJson = objectMapper.writeValueAsString(cachedLabels);
-        
-        // Mock cached issues
-        List<GitHubIssue> cachedIssues = List.of(
-                GitHubIssue.builder()
-                        .title("Connection pool exhausted")
-                        .body("Pool is running out of connections")
-                        .build()
-        );
-        String cachedIssuesJson = objectMapper.writeValueAsString(cachedIssues);
+
+        // Mock cached issues by label
+        IssueContext bugIssue = IssueContext.builder()
+                .title("Connection pool exhausted")
+                .body("Pool is running out of connections")
+                .build();
+        IssueContext clusterIssue = IssueContext.builder()
+                .title("Cluster failover issue")
+                .body("Cluster is not failing over properly")
+                .build();
+        String bugIssueJson = objectMapper.writeValueAsString(bugIssue);
+        String clusterIssueJson = objectMapper.writeValueAsString(clusterIssue);
 
         when(jedis.get("repo:redis/jedis:labels")).thenReturn(cachedLabelsJson);
-        when(jedis.get("repo:redis/jedis:issues")).thenReturn(cachedIssuesJson);
+        when(jedis.get("repo:redis/jedis:label:bug:issue")).thenReturn(bugIssueJson);
+        when(jedis.get("repo:redis/jedis:label:redis-cluster:issue")).thenReturn(clusterIssueJson);
         when(gitHubService.formatLabelsForPrompt(cachedLabels)).thenReturn("Available labels:\n- bug: Something isn't working\n- redis-cluster: Related to Redis cluster\n");
-        when(gitHubService.formatIssuesForPrompt(cachedIssues)).thenReturn("Recent issues in this repository (1 total):\n- Connection pool exhausted [OPEN] - Pool is running out of connections\n");
         when(liteLLMClient.callLLM(anyString())).thenReturn("bug, redis-cluster");
 
         // When
@@ -78,9 +82,10 @@ class LabelingServiceTest {
         // Then
         assertThat(result).containsExactly("bug", "redis-cluster");
         verify(jedis).get("repo:redis/jedis:labels");
-        verify(jedis).get("repo:redis/jedis:issues");
+        verify(jedis).get("repo:redis/jedis:label:bug:issue");
+        verify(jedis).get("repo:redis/jedis:label:redis-cluster:issue");
         verify(gitHubService, never()).fetchRepositoryLabels(anyString());
-        verify(gitHubService, never()).fetchRepositoryIssues(anyString());
+        verify(gitHubService, never()).fetchIssueByLabel(anyString(), anyString());
     }
 
     @Test
@@ -92,24 +97,21 @@ class LabelingServiceTest {
                 .build();
 
         String repositoryUrl = "https://api.github.com/repos/redis/lettuce";
-        
+
         List<Label> fetchedLabels = List.of(
                 Label.builder().name("performance").description("Performance related").build()
         );
-        
-        List<GitHubIssue> fetchedIssues = List.of(
-                GitHubIssue.builder()
-                        .title("Slow queries")
-                        .body("Database queries are slow")
-                        .build()
-        );
+
+        IssueContext performanceIssue = IssueContext.builder()
+                .title("Slow queries")
+                .body("Database queries are slow")
+                .build();
 
         when(jedis.get("repo:redis/lettuce:labels")).thenReturn(null);
-        when(jedis.get("repo:redis/lettuce:issues")).thenReturn(null);
+        when(jedis.get("repo:redis/lettuce:label:performance:issue")).thenReturn(null);
         when(gitHubService.fetchRepositoryLabels(repositoryUrl)).thenReturn(fetchedLabels);
-        when(gitHubService.fetchRepositoryIssues(repositoryUrl)).thenReturn(fetchedIssues);
+        when(gitHubService.fetchIssueByLabel(repositoryUrl, "performance")).thenReturn(performanceIssue);
         when(gitHubService.formatLabelsForPrompt(fetchedLabels)).thenReturn("Available labels:\n- performance: Performance related\n");
-        when(gitHubService.formatIssuesForPrompt(fetchedIssues)).thenReturn("Recent issues in this repository (1 total):\n- Slow queries [OPEN] - Database queries are slow\n");
         when(liteLLMClient.callLLM(anyString())).thenReturn("performance");
 
         // When
@@ -118,9 +120,9 @@ class LabelingServiceTest {
         // Then
         assertThat(result).containsExactly("performance");
         verify(gitHubService).fetchRepositoryLabels(repositoryUrl);
-        verify(gitHubService).fetchRepositoryIssues(repositoryUrl);
+        verify(gitHubService).fetchIssueByLabel(repositoryUrl, "performance");
         verify(jedis).setex(eq("repo:redis/lettuce:labels"), eq(3600), anyString());
-        verify(jedis).setex(eq("repo:redis/lettuce:issues"), eq(1800), anyString()); // Issues have shorter TTL
+        verify(jedis).setex(eq("repo:redis/lettuce:label:performance:issue"), eq(1800), anyString()); // Issues have shorter TTL
     }
 
     @Test
@@ -132,11 +134,9 @@ class LabelingServiceTest {
                 .build();
 
         String repositoryUrl = "https://api.github.com/repos/owner/repo-name";
-        
+
         when(jedis.get("repo:owner/repo-name:labels")).thenReturn(null);
-        when(jedis.get("repo:owner/repo-name:issues")).thenReturn(null);
         when(gitHubService.fetchRepositoryLabels(repositoryUrl)).thenReturn(List.of());
-        when(gitHubService.fetchRepositoryIssues(repositoryUrl)).thenReturn(List.of());
         when(liteLLMClient.callLLM(anyString())).thenReturn("bug");
 
         // When
@@ -144,6 +144,6 @@ class LabelingServiceTest {
 
         // Then
         verify(jedis).get("repo:owner/repo-name:labels");
-        verify(jedis).get("repo:owner/repo-name:issues");
+        // No labels means no issue fetching by label
     }
 }

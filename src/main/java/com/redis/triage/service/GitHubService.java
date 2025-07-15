@@ -3,6 +3,7 @@ package com.redis.triage.service;
 import com.redis.triage.model.webhook.GitHubIssue;
 import com.redis.triage.client.GitHubFeignClient;
 import com.redis.triage.model.feign.Label;
+import com.redis.triage.model.IssueContext;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -135,15 +136,21 @@ public class GitHubService {
     }
 
     /**
-     * Fetches issues from a GitHub repository with pagination support
+     * Fetches one issue for a specific label from a GitHub repository
      *
      * @param repositoryUrl The repository URL from the webhook payload
-     * @return List of issues from the repository (limited to recent issues for LLM context)
+     * @param labelName The label name to filter by
+     * @return IssueContext containing title and body of the first issue found, or null if none found
      */
-    public List<GitHubIssue> fetchRepositoryIssues(String repositoryUrl) {
+    public IssueContext fetchIssueByLabel(String repositoryUrl, String labelName) {
         if (repositoryUrl == null || repositoryUrl.isEmpty()) {
-            log.warn("Repository URL is null or empty, cannot fetch issues");
-            return List.of();
+            log.warn("Repository URL is null or empty, cannot fetch issue by label");
+            return null;
+        }
+
+        if (labelName == null || labelName.isEmpty()) {
+            log.warn("Label name is null or empty, cannot fetch issue by label");
+            return null;
         }
 
         try {
@@ -151,56 +158,38 @@ public class GitHubService {
             String[] ownerAndRepo = extractOwnerAndRepo(repositoryUrl);
             if (ownerAndRepo == null) {
                 log.warn("Could not extract owner and repo from URL: {}", repositoryUrl);
-                return List.of();
+                return null;
             }
 
             String owner = ownerAndRepo[0];
             String repo = ownerAndRepo[1];
-            log.info("Fetching issues from repository: {}/{}", owner, repo);
+            log.debug("Fetching issue for label '{}' from repository: {}/{}", labelName, owner, repo);
 
-            List<GitHubIssue> allIssues = new ArrayList<>();
-            int page = 1;
-            int maxPages = 5; // Limit to first 5 pages (500 issues max) for LLM context
-            int perPage = 100;
+            // Make the API call to fetch issues for this label (limit to 1 per page)
+            List<GitHubIssue> issues = gitHubFeignClient.getRepositoryIssuesByLabel(
+                owner, repo, labelName, "all", "updated", "desc", 1, 1
+            );
 
-            while (page <= maxPages) {
-                log.debug("Fetching issues from page {} for repository {}/{}", page, owner, repo);
-
-                // Make the API call to fetch issues for this page using Feign client
-                List<GitHubIssue> pageIssues = gitHubFeignClient.getRepositoryIssues(
-                    owner, repo, "all", "updated", "desc", perPage, page
-                );
-
-                if (pageIssues == null || pageIssues.isEmpty()) {
-                    log.debug("No more issues found on page {}, stopping pagination", page);
-                    break;
-                }
-
-                allIssues.addAll(pageIssues);
-                log.debug("Fetched {} issues from page {}, total so far: {}",
-                    pageIssues.size(), page, allIssues.size());
-
-                // If we got fewer issues than requested per page, we've reached the end
-                if (pageIssues.size() < perPage) {
-                    log.debug("Received fewer issues than requested per page, reached end of results");
-                    break;
-                }
-
-                page++;
+            if (issues == null || issues.isEmpty()) {
+                log.debug("No issues found for label '{}' in repository {}/{}", labelName, owner, repo);
+                return null;
             }
 
-            log.info("Successfully fetched {} issues from repository across {} pages",
-                allIssues.size(), page - 1);
-            log.debug("Fetched issues: {}", allIssues.stream().map(GitHubIssue::getTitle).toList());
+            GitHubIssue issue = issues.get(0);
+            IssueContext issueContext = IssueContext.builder()
+                .title(issue.getTitle())
+                .body(issue.getBody())
+                .build();
 
-            return allIssues;
+            log.debug("Successfully fetched issue for label '{}': {}", labelName, issue.getTitle());
+            return issueContext;
 
         } catch (FeignException e) {
-            log.error("GitHub API error when fetching issues: {} - {}", e.status(), e.getMessage());
-            return List.of();
+            log.error("GitHub API error when fetching issue for label '{}': {} - {}", labelName, e.status(), e.getMessage());
+            return null;
         } catch (Exception e) {
-            log.error("Error fetching repository issues: {}", e.getMessage(), e);
-            return List.of();
+            log.error("Error fetching issue for label '{}': {}", labelName, e.getMessage(), e);
+            return null;
         }
     }
 

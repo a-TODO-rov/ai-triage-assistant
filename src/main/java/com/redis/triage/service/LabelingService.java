@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.redis.triage.model.webhook.GitHubIssue;
 import com.redis.triage.model.feign.Label;
+import com.redis.triage.model.IssueContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -12,6 +13,8 @@ import redis.clients.jedis.JedisPooled;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -61,15 +64,15 @@ public class LabelingService {
                 log.debug("Got {} repository labels", repositoryLabels.size());
             }
 
-            // Fetch repository issues with caching
-            List<GitHubIssue> repositoryIssues = List.of();
-            if (repositoryUrl != null && !repositoryUrl.isEmpty()) {
-                repositoryIssues = getRepositoryIssues(repositoryUrl, repoName);
-                log.debug("Got {} repository issues", repositoryIssues.size());
+            // Fetch repository issues by labels with caching
+            Map<String, IssueContext> repositoryIssuesByLabel = new HashMap<>();
+            if (repositoryUrl != null && !repositoryUrl.isEmpty() && !repositoryLabels.isEmpty()) {
+                repositoryIssuesByLabel = getRepositoryIssuesByLabels(repositoryUrl, repoName, repositoryLabels);
+                log.debug("Got {} repository issues by labels", repositoryIssuesByLabel.size());
             }
 
             // Build the prompt with repository context (labels and issues)
-            String prompt = buildPrompt(issue, repositoryLabels, repositoryIssues);
+            String prompt = buildPrompt(issue, repositoryLabels, repositoryIssuesByLabel);
             log.debug("Built prompt for issue '{}': {}", issue.getTitle(), prompt);
 
             // Call LiteLLM to get label suggestions
@@ -129,46 +132,63 @@ public class LabelingService {
     }
 
     /**
-     * Gets repository issues with Redis caching
+     * Gets repository issues by labels with Redis caching
+     * Fetches 1 issue per label and stores only title and body
      *
      * @param repositoryUrl The repository URL
      * @param repoName The repository name for cache key
-     * @return List of issues
+     * @param labels The labels to fetch issues for
+     * @return Map of label name to issue context (title and body)
      */
-    private List<GitHubIssue> getRepositoryIssues(String repositoryUrl, String repoName) {
-        String cacheKey = "repo:" + repoName + ":issues";
+    private Map<String, IssueContext> getRepositoryIssuesByLabels(String repositoryUrl, String repoName, List<Label> labels) {
+        Map<String, IssueContext> issuesByLabel = new HashMap<>();
 
-        try {
-            // Check if issues are in Redis cache
-            String cachedIssues = jedis.get(cacheKey);
-            if (cachedIssues != null && !cachedIssues.isEmpty()) {
-                log.info("Found cached issues for repository: {}", repoName);
-                return objectMapper.readValue(cachedIssues, new TypeReference<List<GitHubIssue>>() {});
+        for (Label label : labels) {
+            String cacheKey = "repo:" + repoName + ":label:" + label.getName() + ":issue";
+
+            try {
+                // Check if issue for this label is in Redis cache
+                String cachedIssue = jedis.get(cacheKey);
+                if (cachedIssue != null && !cachedIssue.isEmpty()) {
+                    log.debug("Found cached issue for label '{}' in repository: {}", label.getName(), repoName);
+                    IssueContext issueContext = objectMapper.readValue(cachedIssue, IssueContext.class);
+                    issuesByLabel.put(label.getName(), issueContext);
+                    continue;
+                }
+
+                // Cache miss - fetch from GitHub API
+                log.debug("Cache miss for label '{}', fetching from GitHub API: {}", label.getName(), repoName);
+                IssueContext issueContext = gitHubService.fetchIssueByLabel(repositoryUrl, label.getName());
+
+                if (issueContext != null) {
+                    // Store in Redis cache with shorter TTL since issues change more frequently
+                    String issueJson = objectMapper.writeValueAsString(issueContext);
+                    jedis.setex(cacheKey, ISSUES_CACHE_TTL_SECONDS, issueJson);
+                    log.debug("Cached issue for label '{}' in repository: {} (TTL: {} seconds)",
+                        label.getName(), repoName, ISSUES_CACHE_TTL_SECONDS);
+                    issuesByLabel.put(label.getName(), issueContext);
+                } else {
+                    log.debug("No issue found for label '{}' in repository: {}", label.getName(), repoName);
+                }
+
+            } catch (JsonProcessingException e) {
+                log.error("Error processing JSON for issue with label '{}': {}", label.getName(), e.getMessage(), e);
+                // Try to fetch directly from API on JSON error
+                try {
+                    IssueContext issueContext = gitHubService.fetchIssueByLabel(repositoryUrl, label.getName());
+                    if (issueContext != null) {
+                        issuesByLabel.put(label.getName(), issueContext);
+                    }
+                } catch (Exception fallbackException) {
+                    log.error("Fallback fetch also failed for label '{}': {}", label.getName(), fallbackException.getMessage());
+                }
+            } catch (Exception e) {
+                log.error("Error getting issue for label '{}': {}", label.getName(), e.getMessage(), e);
             }
-
-            // Cache miss - fetch from GitHub API with pagination
-            log.info("Cache miss for issues, fetching from GitHub API with pagination: {}", repoName);
-            List<GitHubIssue> issues = gitHubService.fetchRepositoryIssues(repositoryUrl);
-
-            // Store in Redis cache with shorter TTL since issues change more frequently
-            if (!issues.isEmpty()) {
-                String issuesJson = objectMapper.writeValueAsString(issues);
-                jedis.setex(cacheKey, ISSUES_CACHE_TTL_SECONDS, issuesJson);
-                log.info("Cached {} issues for repository: {} (TTL: {} seconds)",
-                    issues.size(), repoName, ISSUES_CACHE_TTL_SECONDS);
-            } else {
-                log.warn("No issues fetched from GitHub API for repository: {}", repoName);
-            }
-
-            return issues;
-        } catch (JsonProcessingException e) {
-            log.error("Error processing JSON for repository issues: {}", e.getMessage(), e);
-            // Fallback to direct API call on error
-            return gitHubService.fetchRepositoryIssues(repositoryUrl);
-        } catch (Exception e) {
-            log.error("Error getting repository issues: {}", e.getMessage(), e);
-            return List.of();
         }
+
+        log.info("Successfully fetched {} issues by labels for repository: {}", issuesByLabel.size(), repoName);
+        return issuesByLabel;
     }
 
     /**
@@ -207,7 +227,7 @@ public class LabelingService {
      * @return The formatted prompt string
      */
     private String buildPrompt(GitHubIssue issue) {
-        return buildPrompt(issue, List.of(), List.of());
+        return buildPrompt(issue, List.of(), new HashMap<>());
     }
 
     /**
@@ -218,7 +238,7 @@ public class LabelingService {
      * @return The formatted prompt string
      */
     private String buildPrompt(GitHubIssue issue, List<Label> repositoryLabels) {
-        return buildPrompt(issue, repositoryLabels, List.of());
+        return buildPrompt(issue, repositoryLabels, new HashMap<>());
     }
 
     /**
@@ -226,10 +246,10 @@ public class LabelingService {
      *
      * @param issue The GitHub issue
      * @param repositoryLabels The labels available in the repository
-     * @param repositoryIssues The issues in the repository
+     * @param repositoryIssuesByLabel Map of label names to issue contexts
      * @return The formatted prompt string
      */
-    private String buildPrompt(GitHubIssue issue, List<Label> repositoryLabels, List<GitHubIssue> repositoryIssues) {
+    private String buildPrompt(GitHubIssue issue, List<Label> repositoryLabels, Map<String, IssueContext> repositoryIssuesByLabel) {
         StringBuilder promptBuilder = new StringBuilder();
 
         promptBuilder.append("You are an AI triage assistant. Read the following GitHub issue and return relevant labels.\n\n");
@@ -244,9 +264,9 @@ public class LabelingService {
         }
 
         // Add repository issues context if available
-        if (repositoryIssues != null && !repositoryIssues.isEmpty()) {
-            promptBuilder.append(gitHubService.formatIssuesForPrompt(repositoryIssues));
-            promptBuilder.append("\nConsider these recent issues when determining appropriate labels for the current issue.\n\n");
+        if (repositoryIssuesByLabel != null && !repositoryIssuesByLabel.isEmpty()) {
+            promptBuilder.append(formatIssuesByLabelForPrompt(repositoryIssuesByLabel));
+            promptBuilder.append("\nConsider these example issues for each label when determining appropriate labels for the current issue.\n\n");
         }
 
         promptBuilder.append("Issue to label:\n");
@@ -257,6 +277,37 @@ public class LabelingService {
         promptBuilder.append("Return only a list of relevant labels as a comma-separated string.");
 
         return promptBuilder.toString();
+    }
+
+    /**
+     * Formats issues by label into a readable text format for LLM prompts
+     * Uses only title and body for each issue
+     *
+     * @param issuesByLabel Map of label names to issue contexts
+     * @return Formatted issues text
+     */
+    private String formatIssuesByLabelForPrompt(Map<String, IssueContext> issuesByLabel) {
+        if (issuesByLabel == null || issuesByLabel.isEmpty()) {
+            return "No example issues available for labels in this repository.";
+        }
+
+        StringBuilder issuesText = new StringBuilder();
+        issuesText.append("Example issues for each label (").append(issuesByLabel.size()).append(" labels with examples):\n");
+
+        for (Map.Entry<String, IssueContext> entry : issuesByLabel.entrySet()) {
+            String labelName = entry.getKey();
+            IssueContext issueContext = entry.getValue();
+
+            issuesText.append("- Label '").append(labelName).append("': ");
+            issuesText.append(issueContext.getTitle() != null ? issueContext.getTitle() : "No title");
+
+            if (issueContext.getBody() != null && !issueContext.getBody().isEmpty()) {
+                issuesText.append(" - ").append(issueContext.getBody());
+            }
+            issuesText.append("\n");
+        }
+
+        return issuesText.toString();
     }
 
     /**
