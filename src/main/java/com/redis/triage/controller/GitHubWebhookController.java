@@ -2,6 +2,7 @@ package com.redis.triage.controller;
 
 import com.redis.triage.model.GitHubWebhookPayload;
 import com.redis.triage.model.GitHubIssue;
+import com.redis.triage.service.GitHubService;
 import com.redis.triage.service.LabelingService;
 import com.redis.triage.service.SemanticSearchService;
 import com.redis.triage.service.SlackNotifier;
@@ -28,6 +29,7 @@ public class GitHubWebhookController {
     private final LabelingService labelingService;
     private final SemanticSearchService semanticSearchService;
     private final SlackNotifier slackNotifier;
+    private final GitHubService gitHubService;
 
     /**
      * Handles GitHub issue webhook events
@@ -53,8 +55,9 @@ public class GitHubWebhookController {
                 issue.getTitle(), webhookPayload.getAction());
 
         try {
-            // Generate labels for the issue
-            List<String> labels = labelingService.generateLabels(issue);
+            // Generate labels for the issue with repository context
+            String repositoryUrl = issue.getRepositoryUrl();
+            List<String> labels = labelingService.generateLabels(issue, repositoryUrl);
             log.info("Generated labels for issue '{}': {}", issue.getTitle(), labels);
 
             // Atomically find similar issues and store the new issue

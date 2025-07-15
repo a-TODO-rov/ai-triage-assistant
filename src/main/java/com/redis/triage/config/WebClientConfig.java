@@ -20,6 +20,9 @@ public class WebClientConfig {
     @Value("${SLACK_WEBHOOK_URL}")
     private String slackWebhookUrl;
 
+    @Value("${GITHUB_TOKEN:}")
+    private String githubToken;
+
     /**
      * Creates a WebClient bean configured for LiteLLM API calls
      * 
@@ -39,7 +42,7 @@ public class WebClientConfig {
 
     /**
      * Creates a WebClient bean configured for Slack webhook calls
-     * 
+     *
      * @return Configured WebClient instance
      */
     @Bean("slackWebClient")
@@ -48,5 +51,25 @@ public class WebClientConfig {
                 .baseUrl(slackWebhookUrl)
                 .defaultHeader("Content-Type", "application/json")
                 .build();
+    }
+
+    /**
+     * Creates a WebClient bean configured for GitHub API calls
+     *
+     * @return Configured WebClient instance
+     */
+    @Bean("githubWebClient")
+    public WebClient githubWebClient() {
+        WebClient.Builder builder = WebClient.builder()
+                .baseUrl("https://api.github.com")
+                .defaultHeader("User-Agent", "ai-triage-assistant/1.0")
+                .defaultHeader("Accept", "application/vnd.github.v3+json");
+
+        // Add authorization header if GitHub token is provided
+        if (githubToken != null && !githubToken.isEmpty()) {
+            builder.defaultHeader("Authorization", "token " + githubToken);
+        }
+
+        return builder.build();
     }
 }
