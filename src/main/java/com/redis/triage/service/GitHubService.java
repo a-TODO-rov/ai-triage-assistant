@@ -1,5 +1,6 @@
 package com.redis.triage.service;
 
+import com.redis.triage.model.GitHubIssue;
 import com.redis.triage.model.Label;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -10,6 +11,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -122,5 +124,154 @@ public class GitHubService {
         }
 
         return labelsText.toString();
+    }
+
+    /**
+     * Fetches issues from a GitHub repository with pagination support
+     *
+     * @param repositoryUrl The repository URL from the webhook payload
+     * @return List of issues from the repository (limited to recent issues for LLM context)
+     */
+    public List<GitHubIssue> fetchRepositoryIssues(String repositoryUrl) {
+        if (repositoryUrl == null || repositoryUrl.isEmpty()) {
+            log.warn("Repository URL is null or empty, cannot fetch issues");
+            return List.of();
+        }
+
+        try {
+            List<GitHubIssue> allIssues = new ArrayList<>();
+            int page = 1;
+            int maxPages = 5; // Limit to first 5 pages (500 issues max) for LLM context
+            int perPage = 100;
+
+            while (page <= maxPages) {
+                // Construct the paginated issues URL
+                String issuesUrl = constructIssuesUrl(repositoryUrl, page, perPage);
+                log.debug("Fetching issues from page {}: {}", page, issuesUrl);
+
+                // Make the API call to fetch issues for this page
+                Mono<List<GitHubIssue>> responseMono = githubWebClient
+                    .get()
+                    .uri(issuesUrl)
+                    .retrieve()
+                    .bodyToMono(new ParameterizedTypeReference<List<GitHubIssue>>() {});
+
+                List<GitHubIssue> pageIssues = responseMono.block();
+
+                if (pageIssues == null || pageIssues.isEmpty()) {
+                    log.debug("No more issues found on page {}, stopping pagination", page);
+                    break;
+                }
+
+                allIssues.addAll(pageIssues);
+                log.debug("Fetched {} issues from page {}, total so far: {}",
+                    pageIssues.size(), page, allIssues.size());
+
+                // If we got fewer issues than requested per page, we've reached the end
+                if (pageIssues.size() < perPage) {
+                    log.debug("Received fewer issues than requested per page, reached end of results");
+                    break;
+                }
+
+                page++;
+            }
+
+            log.info("Successfully fetched {} issues from repository across {} pages",
+                allIssues.size(), page - 1);
+            log.debug("Fetched issues: {}", allIssues.stream().map(GitHubIssue::getTitle).toList());
+
+            return allIssues;
+
+        } catch (WebClientResponseException e) {
+            log.error("GitHub API error when fetching issues: {} - {}", e.getStatusCode(), e.getMessage());
+            return List.of();
+        } catch (Exception e) {
+            log.error("Error fetching repository issues: {}", e.getMessage(), e);
+            return List.of();
+        }
+    }
+
+    /**
+     * Constructs the issues URL from a GitHub repository URL with pagination support
+     *
+     * @param repositoryUrl The GitHub repository URL
+     * @param page The page number (1-based)
+     * @param perPage The number of items per page
+     * @return The issues endpoint URL with pagination parameters
+     */
+    private String constructIssuesUrl(String repositoryUrl, int page, int perPage) {
+        if (repositoryUrl == null || repositoryUrl.isEmpty()) {
+            return "";
+        }
+
+        // Handle different URL types:
+        // Repository URL format: https://api.github.com/repos/owner/repo
+        if (repositoryUrl.startsWith("https://api.github.com")) {
+            // Remove the base URL to get the path
+            String path = repositoryUrl.replace("https://api.github.com", "");
+            return path + "/issues?state=all&sort=updated&direction=desc&per_page=" + perPage + "&page=" + page;
+        } else {
+            // Fallback: assume it's already a path
+            return repositoryUrl + "/issues?state=all&sort=updated&direction=desc&per_page=" + perPage + "&page=" + page;
+        }
+    }
+
+    /**
+     * Constructs the issues URL from a GitHub repository URL (backward compatibility)
+     *
+     * @param repositoryUrl The GitHub repository URL
+     * @return The issues endpoint URL
+     */
+    private String constructIssuesUrl(String repositoryUrl) {
+        return constructIssuesUrl(repositoryUrl, 1, 100);
+    }
+
+    /**
+     * Formats issues into a readable text format for LLM prompts
+     *
+     * @param issues List of issues to format
+     * @return Formatted issues text
+     */
+    public String formatIssuesForPrompt(List<GitHubIssue> issues) {
+        if (issues == null || issues.isEmpty()) {
+            return "No recent issues available in this repository.";
+        }
+
+        StringBuilder issuesText = new StringBuilder();
+        issuesText.append("Recent issues in this repository (").append(issues.size()).append(" total):\n");
+
+        // Limit to first 15 issues to provide good context without overwhelming the LLM
+        int limit = Math.min(issues.size(), 15);
+        for (int i = 0; i < limit; i++) {
+            GitHubIssue issue = issues.get(i);
+            issuesText.append("- ").append(issue.getTitle());
+
+            // Add state information
+            if (issue.getState() != null) {
+                issuesText.append(" [").append(issue.getState().toUpperCase()).append("]");
+            }
+
+            // Add existing labels if available
+            if (issue.getLabels() != null && !issue.getLabels().isEmpty()) {
+                issuesText.append(" (labels: ");
+                issuesText.append(issue.getLabels().stream()
+                    .map(label -> label.getName())
+                    .reduce((a, b) -> a + ", " + b)
+                    .orElse(""));
+                issuesText.append(")");
+            }
+
+            // Add full body for context
+            if (issue.getBody() != null && !issue.getBody().isEmpty()) {
+                issuesText.append(" - ").append(issue.getBody());
+            }
+            issuesText.append("\n");
+        }
+
+        if (issues.size() > limit) {
+            issuesText.append("... and ").append(issues.size() - limit).append(" more issues\n");
+        }
+
+        return issuesText.toString();
     }
 }
