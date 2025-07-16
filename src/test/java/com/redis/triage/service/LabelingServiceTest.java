@@ -3,6 +3,7 @@ package com.redis.triage.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.redis.triage.model.webhook.GitHubIssue;
 import com.redis.triage.model.feign.Label;
+import com.redis.triage.model.LlmRoute;
 import com.redis.triage.model.IssueContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,6 +15,7 @@ import redis.clients.jedis.JedisPooled;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -35,13 +37,18 @@ class LabelingServiceTest {
     @Mock
     private JedisPooled jedis;
 
+    @Mock
+    private PromptRouter promptRouter;
+
     private ObjectMapper objectMapper;
     private LabelingService labelingService;
 
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
-        labelingService = new LabelingService(liteLLMClient, gitHubService, semanticSearchService, jedis, objectMapper);
+        // Mock the router to return a default route
+        when(promptRouter.routeFor(any())).thenReturn(new LlmRoute("gpt-4", "openai", 1.0));
+        labelingService = new LabelingService(liteLLMClient, gitHubService, semanticSearchService, jedis, objectMapper, promptRouter);
     }
 
     @Test
@@ -77,7 +84,7 @@ class LabelingServiceTest {
         when(jedis.get("repo:redis/jedis:label:bug:issue")).thenReturn(bugIssueJson);
         when(jedis.get("repo:redis/jedis:label:redis-cluster:issue")).thenReturn(clusterIssueJson);
         when(gitHubService.formatLabelsForPrompt(cachedLabels)).thenReturn("Available labels:\n- bug: Something isn't working\n- redis-cluster: Related to Redis cluster\n");
-        when(liteLLMClient.callLLM(anyString())).thenReturn("bug, redis-cluster");
+        when(liteLLMClient.callLLM(anyString(), anyString(), anyString())).thenReturn("bug, redis-cluster");
 
         // When
         List<String> result = labelingService.generateLabels(issue, repositoryUrl);
@@ -115,7 +122,7 @@ class LabelingServiceTest {
         when(gitHubService.fetchRepositoryLabels(repositoryUrl)).thenReturn(fetchedLabels);
         when(gitHubService.fetchIssueByLabel(repositoryUrl, "performance")).thenReturn(performanceIssue);
         when(gitHubService.formatLabelsForPrompt(fetchedLabels)).thenReturn("Available labels:\n- performance: Performance related\n");
-        when(liteLLMClient.callLLM(anyString())).thenReturn("performance");
+        when(liteLLMClient.callLLM(anyString(), anyString(), anyString())).thenReturn("performance");
 
         // When
         List<String> result = labelingService.generateLabels(issue, repositoryUrl);
@@ -138,7 +145,7 @@ class LabelingServiceTest {
 
         when(jedis.get("repo:owner/repo-name:labels")).thenReturn(null);
         when(gitHubService.fetchRepositoryLabels(repositoryUrl)).thenReturn(List.of());
-        when(liteLLMClient.callLLM(anyString())).thenReturn("bug");
+        when(liteLLMClient.callLLM(anyString(), anyString(), anyString())).thenReturn("bug");
 
         // When
         labelingService.generateLabels(issue, repositoryUrl);

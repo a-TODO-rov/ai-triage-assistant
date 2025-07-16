@@ -26,16 +26,6 @@ public class LiteLLMClient {
     private String liteLLMApiKey;
 
     /**
-     * Sends a prompt to LiteLLM and returns the response
-     *
-     * @param prompt The prompt to send to LiteLLM
-     * @return The response from LiteLLM
-     */
-    public String sendPrompt(String prompt) {
-        return callLLM(prompt);
-    }
-
-    /**
      * Generates embeddings for the given text using LiteLLM API
      *
      * @param text The text to generate embeddings for
@@ -76,13 +66,15 @@ public class LiteLLMClient {
     }
 
     /**
-     * Calls the LiteLLM API with the given prompt
+     * Calls the LiteLLM API with the given prompt and specified model
      *
      * @param prompt The prompt to send to the LLM
+     * @param model The model to use (e.g., "gpt-4", "claude-3-opus")
+     * @param provider The provider (e.g., "openai", "anthropic")
      * @return The raw string content of the LLM response
      */
-    public String callLLM(String prompt) {
-        log.info("Sending prompt to LiteLLM API");
+    public String callLLM(String prompt, String model, String provider) {
+        log.info("Sending prompt to LiteLLM API using model: {} from provider: {}", model, provider);
         log.debug("Prompt content: {}", prompt);
 
         try {
@@ -93,7 +85,7 @@ public class LiteLLMClient {
                 .build();
 
             LiteLLMChatRequest request = LiteLLMChatRequest.builder()
-                .model("gpt-4")
+                .model(model)
                 .messages(List.of(message))
                 .temperature(0.3)
                 .build();
@@ -111,13 +103,13 @@ public class LiteLLMClient {
 
             // Extract the content from the response
             String content = extractContentFromResponse(response);
-            log.info("Successfully received response from LiteLLM API");
+            log.info("Successfully received response from LiteLLM API using model: {}", model);
             log.debug("Response content: {}", content);
 
             return content;
 
         } catch (Exception e) {
-            log.error("Error calling LiteLLM API: {}", e.getMessage(), e);
+            log.error("Error calling LiteLLM API with model {}: {}", model, e.getMessage(), e);
             return "Error: Failed to get response from LiteLLM API - " + e.getMessage();
         }
     }

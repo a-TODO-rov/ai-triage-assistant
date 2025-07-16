@@ -132,7 +132,7 @@ class TriageWorkflowIT {
         assertThat(foundTitles).contains("Jedis timeout in high load");
 
         // Verify labeling service functionality
-        List<String> generatedLabels = labelingService.generateLabels(issue);
+        List<String> generatedLabels = labelingService.generateLabels(issue, null);
         assertThat(generatedLabels).isNotEmpty(); // Real LLM may return different labels than expected
         log.info("Direct labeling service call generated labels: {}", generatedLabels);
 

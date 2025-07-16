@@ -6,7 +6,6 @@ import com.redis.triage.service.LabelingService;
 import com.redis.triage.util.Constants;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 
 import java.util.List;

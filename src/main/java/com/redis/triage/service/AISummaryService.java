@@ -1,6 +1,9 @@
 package com.redis.triage.service;
 
+import com.redis.triage.model.TaskType;
 import com.redis.triage.model.webhook.GitHubIssue;
+import com.redis.triage.model.LlmRoute;
+import com.redis.triage.model.TaskContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -16,102 +19,7 @@ import java.util.List;
 public class AISummaryService {
 
     private final LiteLLMClient liteLLMClient;
-
-    /**
-     * Generates an AI summary for a GitHub issue
-     *
-     * @param issue The GitHub issue to summarize
-     * @param labels The generated labels for the issue (optional context)
-     * @return AI-generated summary of the issue
-     */
-    public String generateSummary(GitHubIssue issue, List<String> labels) {
-        log.info("Generating AI summary for issue: {}", issue.getTitle());
-
-        try {
-            // Build the prompt for summary generation
-            String prompt = buildSummaryPrompt(issue, labels);
-            log.debug("Built summary prompt for issue '{}': {}", issue.getTitle(), prompt);
-
-            // Call LiteLLM to get the summary
-            String response = liteLLMClient.callLLM(prompt);
-            log.debug("Received summary response from LiteLLM: {}", response);
-
-            // Clean up the response
-            String summary = cleanSummaryResponse(response);
-            log.info("Generated summary for issue '{}': {}", issue.getTitle(), summary);
-
-            return summary;
-
-        } catch (Exception e) {
-            log.error("Error generating summary for issue '{}': {}", issue.getTitle(), e.getMessage(), e);
-            return "Unable to generate summary at this time.";
-        }
-    }
-
-    /**
-     * Builds the prompt for AI summary generation
-     *
-     * @param issue The GitHub issue
-     * @param labels The generated labels for context
-     * @return The formatted prompt string
-     */
-    private String buildSummaryPrompt(GitHubIssue issue, List<String> labels) {
-        String labelsContext = labels != null && !labels.isEmpty() ? 
-            String.join(", ", labels) : "none";
-
-        return String.format("""
-            You are an AI assistant helping with GitHub issue triage. Please provide a concise, professional summary of the following GitHub issue.
-            
-            The summary should:
-            - Be 1-3 sentences maximum
-            - Focus on the core problem or request
-            - Be written in a clear, technical tone
-            - Avoid unnecessary details
-            - Help maintainers quickly understand the issue
-            
-            Issue Details:
-            ---
-            Title: %s
-            Body: %s
-            Generated Labels: %s
-            ---
-            
-            Provide only the summary, no additional text or formatting.""",
-            issue.getTitle() != null ? issue.getTitle() : "No title",
-            issue.getBody() != null ? issue.getBody() : "No description provided",
-            labelsContext
-        );
-    }
-
-    /**
-     * Cleans up the AI response to ensure it's suitable for Slack
-     *
-     * @param response The raw response from the AI
-     * @return Cleaned summary text
-     */
-    private String cleanSummaryResponse(String response) {
-        if (response == null || response.trim().isEmpty()) {
-            return "No summary available.";
-        }
-
-        // Remove common AI response prefixes/suffixes
-        String cleaned = response.trim()
-            .replaceAll("^(Summary:|Here's a summary:|The summary is:)\\s*", "")
-            .replaceAll("\\s*(\\.|Summary complete\\.?)$", "")
-            .trim();
-
-        // Ensure it doesn't start with quotes
-        if (cleaned.startsWith("\"") && cleaned.endsWith("\"")) {
-            cleaned = cleaned.substring(1, cleaned.length() - 1).trim();
-        }
-
-        // Limit length to prevent overly long summaries
-        if (cleaned.length() > 500) {
-            cleaned = cleaned.substring(0, 497) + "...";
-        }
-
-        return cleaned.isEmpty() ? "No summary available." : cleaned;
-    }
+    private final PromptRouter promptRouter;
 
     /**
      * Generates a summary with similar issues context
@@ -129,8 +37,19 @@ public class AISummaryService {
             String prompt = buildSummaryPromptWithContext(issue, labels, similarIssues);
             log.debug("Built contextual summary prompt for issue '{}': {}", issue.getTitle(), prompt);
 
-            // Call LiteLLM to get the summary
-            String response = liteLLMClient.callLLM(prompt);
+            // Create task context for routing (contextual summaries may be longer)
+            TaskContext taskContext = new TaskContext(
+                TaskType.SUMMARIZATION,
+                estimateTokenCount(prompt),
+                "normal",
+                0.3 // lower cost sensitivity for summaries
+            );
+
+            // Route to appropriate LLM
+            LlmRoute route = promptRouter.routeFor(taskContext);
+
+            // Call LiteLLM to get the summary using routed model
+            String response = liteLLMClient.callLLM(prompt, route.model(), route.provider());
             log.debug("Received contextual summary response from LiteLLM: {}", response);
 
             // Clean up the response
@@ -141,9 +60,38 @@ public class AISummaryService {
 
         } catch (Exception e) {
             log.error("Error generating contextual summary for issue '{}': {}", issue.getTitle(), e.getMessage(), e);
-            // Fallback to basic summary
-            return generateSummary(issue, labels);
+            return "Unable to generate summary at this time.";
         }
+    }
+
+    /**
+     * Cleans up the AI response to ensure it's suitable for Slack
+     *
+     * @param response The raw response from the AI
+     * @return Cleaned summary text
+     */
+    private String cleanSummaryResponse(String response) {
+        if (response == null || response.trim().isEmpty()) {
+            return "No summary available.";
+        }
+
+        // Remove common AI response prefixes/suffixes
+        String cleaned = response.trim()
+                .replaceAll("^(Summary:|Here's a summary:|The summary is:)\\s*", "")
+                .replaceAll("\\s*(\\.|Summary complete\\.?)$", "")
+                .trim();
+
+        // Ensure it doesn't start with quotes
+        if (cleaned.startsWith("\"") && cleaned.endsWith("\"")) {
+            cleaned = cleaned.substring(1, cleaned.length() - 1).trim();
+        }
+
+        // Limit length to prevent overly long summaries
+        if (cleaned.length() > 500) {
+            cleaned = cleaned.substring(0, 497) + "...";
+        }
+
+        return cleaned.isEmpty() ? "No summary available." : cleaned;
     }
 
     /**
@@ -191,5 +139,20 @@ public class AISummaryService {
             labelsContext,
             similarIssuesContext.toString()
         );
+    }
+
+    /**
+     * Estimates the token count for a given text prompt
+     * Uses a simple approximation: ~4 characters per token
+     *
+     * @param text The text to estimate tokens for
+     * @return Estimated token count
+     */
+    private int estimateTokenCount(String text) {
+        if (text == null || text.isEmpty()) {
+            return 0;
+        }
+        // Simple approximation: ~4 characters per token
+        return text.length() / 4;
     }
 }

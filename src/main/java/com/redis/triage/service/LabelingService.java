@@ -3,10 +3,10 @@ package com.redis.triage.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.redis.triage.model.SimilarIssue;
+import com.redis.triage.model.*;
 import com.redis.triage.model.webhook.GitHubIssue;
 import com.redis.triage.model.feign.Label;
-import com.redis.triage.model.IssueContext;
+import com.redis.triage.model.webhook.GitHubLabel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -32,22 +32,13 @@ public class LabelingService {
     private final SemanticSearchService semanticSearchService;
     private final JedisPooled jedis;
     private final ObjectMapper objectMapper;
+    private final PromptRouter promptRouter;
 
     private static final int CACHE_TTL_SECONDS = 3600; // 1 hour cache TTL
     private static final int ISSUES_CACHE_TTL_SECONDS = 1800; // 30 minutes cache TTL for issues (more dynamic)
 
     // High confidence threshold for semantic matching (92% similarity)
     private static final double SIMILARITY_THRESHOLD = 0.92;
-
-    /**
-     * Generates appropriate labels for a GitHub issue
-     *
-     * @param issue The GitHub issue
-     * @return List of suggested labels
-     */
-    public List<String> generateLabels(GitHubIssue issue) {
-        return generateLabels(issue, null);
-    }
 
     /**
      * Generates appropriate labels for a GitHub issue with repository context
@@ -123,8 +114,19 @@ public class LabelingService {
             String prompt = buildPrompt(issue, repositoryLabels, repositoryIssuesByLabel);
             log.debug("Built prompt for issue '{}': {}", issue.getTitle(), prompt);
 
-            // Call LiteLLM to get label suggestions
-            String response = liteLLMClient.callLLM(prompt);
+            // Create task context for routing
+            TaskContext taskContext = new TaskContext(
+                TaskType.LABELING,
+                estimateTokenCount(prompt),
+                "normal",
+                0.5 // moderate cost sensitivity for labeling
+            );
+
+            // Route to appropriate LLM
+            LlmRoute route = promptRouter.routeFor(taskContext);
+
+            // Call LiteLLM to get label suggestions using routed model
+            String response = liteLLMClient.callLLM(prompt, route.model(), route.provider());
             log.debug("Received response from LiteLLM: {}", response);
 
             // Parse the response into a list of labels
@@ -269,27 +271,6 @@ public class LabelingService {
     }
 
     /**
-     * Builds the prompt for the LiteLLM API (backward compatibility)
-     *
-     * @param issue The GitHub issue
-     * @return The formatted prompt string
-     */
-    private String buildPrompt(GitHubIssue issue) {
-        return buildPrompt(issue, List.of(), new HashMap<>());
-    }
-
-    /**
-     * Builds the prompt for the LiteLLM API with repository labels context (backward compatibility)
-     *
-     * @param issue The GitHub issue
-     * @param repositoryLabels The labels available in the repository
-     * @return The formatted prompt string
-     */
-    private String buildPrompt(GitHubIssue issue, List<Label> repositoryLabels) {
-        return buildPrompt(issue, repositoryLabels, new HashMap<>());
-    }
-
-    /**
      * Builds the prompt for the LiteLLM API with repository labels and issues context
      *
      * @param issue The GitHub issue
@@ -405,8 +386,23 @@ public class LabelingService {
         }
 
         return similarIssue.getIssue().getLabels().stream()
-                .map(label -> label.getName())
+                .map(GitHubLabel::getName)
                 .filter(name -> name != null && !name.trim().isEmpty())
                 .toList();
+    }
+
+    /**
+     * Estimates the token count for a given text prompt
+     * Uses a simple approximation: ~4 characters per token
+     *
+     * @param text The text to estimate tokens for
+     * @return Estimated token count
+     */
+    private int estimateTokenCount(String text) {
+        if (text == null || text.isEmpty()) {
+            return 0;
+        }
+        // Simple approximation: ~4 characters per token
+        return text.length() / 4;
     }
 }
