@@ -1,5 +1,6 @@
 package com.redis.triage.service;
 
+import com.redis.triage.model.SimilarIssue;
 import com.redis.triage.model.webhook.GitHubIssue;
 import com.redis.triage.model.webhook.GitHubLabel;
 import lombok.RequiredArgsConstructor;
@@ -10,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Service for performing semantic search on GitHub issues using vector embeddings
@@ -123,6 +125,68 @@ public class SemanticSearchService {
         } catch (Exception e) {
             log.error("Error in findSimilarIssuesAndStore for '{}': {}", issue.getTitle(), e.getMessage(), e);
             return List.of();
+        }
+    }
+
+    /**
+     * Finds a high confidence match using semantic search with similarity threshold
+     *
+     * @param inputText The input text to search for similar issues
+     * @param threshold The minimum similarity threshold (0.0 to 1.0)
+     * @return Optional containing the most similar issue if similarity >= threshold, empty otherwise
+     */
+    public Optional<SimilarIssue> findHighConfidenceMatch(String inputText, double threshold) {
+        log.info("Finding high confidence match for input text with threshold: {}", threshold);
+
+        try {
+            // Step 1: Generate embedding from input text
+            float[] queryEmbedding = liteLLMClient.generateEmbedding(inputText);
+            if (queryEmbedding.length == 0) {
+                log.error("Failed to generate embedding for input text");
+                return Optional.empty();
+            }
+
+            log.info("Generated embedding with {} dimensions", queryEmbedding.length);
+
+            // Step 2: Search for similar issues with scores (limit to 1 for best match)
+            List<Map<String, Object>> searchResults = redisVectorStoreService.searchSimilarIssuesWithScores(queryEmbedding, 1);
+
+            if (searchResults.isEmpty()) {
+                log.info("No similar issues found");
+                return Optional.empty();
+            }
+
+            // Step 3: Check if the best match meets the threshold
+            Map<String, Object> bestMatch = searchResults.get(0);
+            String issueKey = (String) bestMatch.get("key");
+            double similarity = (Double) bestMatch.get("similarity");
+
+            log.info("Best match: {} with similarity: {}", issueKey, similarity);
+
+            if (similarity < threshold) {
+                log.info("Best match similarity {} is below threshold {}", similarity, threshold);
+                return Optional.empty();
+            }
+
+            // Step 4: Build the similar issue with metadata
+            GitHubIssue similarIssue = buildSimilarIssue(issueKey);
+            if (similarIssue == null) {
+                log.warn("Failed to build GitHubIssue from key: {}", issueKey);
+                return Optional.empty();
+            }
+
+            SimilarIssue result = SimilarIssue.builder()
+                    .issue(similarIssue)
+                    .similarityScore(similarity)
+                    .build();
+
+            log.info("Found high confidence match: '{}' with similarity: {}",
+                    similarIssue.getTitle(), similarity);
+            return Optional.of(result);
+
+        } catch (Exception e) {
+            log.error("Error finding high confidence match: {}", e.getMessage(), e);
+            return Optional.empty();
         }
     }
 

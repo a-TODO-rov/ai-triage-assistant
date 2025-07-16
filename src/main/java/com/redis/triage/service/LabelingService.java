@@ -3,6 +3,7 @@ package com.redis.triage.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.redis.triage.model.SimilarIssue;
 import com.redis.triage.model.webhook.GitHubIssue;
 import com.redis.triage.model.feign.Label;
 import com.redis.triage.model.IssueContext;
@@ -15,6 +16,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -27,11 +29,15 @@ public class LabelingService {
 
     private final LiteLLMClient liteLLMClient;
     private final GitHubService gitHubService;
+    private final SemanticSearchService semanticSearchService;
     private final JedisPooled jedis;
     private final ObjectMapper objectMapper;
 
     private static final int CACHE_TTL_SECONDS = 3600; // 1 hour cache TTL
     private static final int ISSUES_CACHE_TTL_SECONDS = 1800; // 30 minutes cache TTL for issues (more dynamic)
+
+    // High confidence threshold for semantic matching (92% similarity)
+    private static final double SIMILARITY_THRESHOLD = 0.92;
 
     /**
      * Generates appropriate labels for a GitHub issue
@@ -45,6 +51,7 @@ public class LabelingService {
 
     /**
      * Generates appropriate labels for a GitHub issue with repository context
+     * First checks semantic cache for high-confidence matches, falls back to LLM if needed
      *
      * @param issue The GitHub issue
      * @param repositoryUrl The repository URL to fetch labels from
@@ -52,6 +59,47 @@ public class LabelingService {
      */
     public List<String> generateLabels(GitHubIssue issue, String repositoryUrl) {
         log.info("Generating labels for issue: {}", issue.getTitle());
+
+        try {
+            // Step 1: Try semantic cache first - build input text from issue
+            String inputText = buildInputText(issue);
+            log.debug("Built input text for semantic search: {}", inputText);
+
+            Optional<SimilarIssue> match = semanticSearchService.findHighConfidenceMatch(inputText, SIMILARITY_THRESHOLD);
+
+            if (match.isPresent()) {
+                // CACHE_HIT: Use labels from similar issue
+                SimilarIssue similarIssue = match.get();
+                List<String> cachedLabels = extractLabelsFromSimilarIssue(similarIssue);
+
+                log.info("CACHE_HIT: Reusing labels from issue {} (similarity: {:.2f})",
+                        similarIssue.getIssue().getId(), similarIssue.getSimilarityScore());
+                log.info("Cached labels for issue '{}': {}", issue.getTitle(), cachedLabels);
+
+                return cachedLabels;
+            } else {
+                // CACHE_MISS: Fall back to LLM labeling
+                log.info("CACHE_MISS: No high-similarity match found, using LLM");
+                return generateLabelsWithLLM(issue, repositoryUrl);
+            }
+
+        } catch (Exception e) {
+            log.error("Error in semantic cache check for issue '{}', falling back to LLM: {}",
+                    issue.getTitle(), e.getMessage(), e);
+            // Fall back to LLM on any error
+            return generateLabelsWithLLM(issue, repositoryUrl);
+        }
+    }
+
+    /**
+     * Generates labels using LLM with repository context (original implementation)
+     *
+     * @param issue The GitHub issue
+     * @param repositoryUrl The repository URL to fetch labels from
+     * @return List of suggested labels
+     */
+    private List<String> generateLabelsWithLLM(GitHubIssue issue, String repositoryUrl) {
+        log.debug("Generating labels using LLM for issue: {}", issue.getTitle());
 
         try {
             // Extract repository name from URL for caching
@@ -81,12 +129,12 @@ public class LabelingService {
 
             // Parse the response into a list of labels
             List<String> labels = parseLabelsFromResponse(response);
-            log.info("Generated {} labels for issue '{}': {}", labels.size(), issue.getTitle(), labels);
+            log.info("LLM generated {} labels for issue '{}': {}", labels.size(), issue.getTitle(), labels);
 
             return labels;
 
         } catch (Exception e) {
-            log.error("Error generating labels for issue '{}': {}", issue.getTitle(), e.getMessage(), e);
+            log.error("Error generating labels with LLM for issue '{}': {}", issue.getTitle(), e.getMessage(), e);
             return List.of(); // Return empty list on error
         }
     }
@@ -330,5 +378,35 @@ public class LabelingService {
 
         log.debug("Parsed {} labels from response: {}", labels.size(), labels);
         return labels;
+    }
+
+    /**
+     * Builds input text from issue title and body for semantic search
+     *
+     * @param issue The GitHub issue
+     * @return Formatted input text
+     */
+    private String buildInputText(GitHubIssue issue) {
+        String title = issue.getTitle() != null ? issue.getTitle() : "";
+        String body = issue.getBody() != null ? issue.getBody() : "";
+
+        return String.format("Title: %s\nBody: %s", title, body);
+    }
+
+    /**
+     * Extracts label names from a similar issue
+     *
+     * @param similarIssue The similar issue with labels
+     * @return List of label names
+     */
+    private List<String> extractLabelsFromSimilarIssue(SimilarIssue similarIssue) {
+        if (similarIssue.getIssue() == null || similarIssue.getIssue().getLabels() == null) {
+            return List.of();
+        }
+
+        return similarIssue.getIssue().getLabels().stream()
+                .map(label -> label.getName())
+                .filter(name -> name != null && !name.trim().isEmpty())
+                .toList();
     }
 }
