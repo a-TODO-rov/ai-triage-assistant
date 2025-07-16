@@ -1,6 +1,5 @@
 package com.redis.triage.client;
 
-import com.redis.triage.config.feign.GitHubFeignConfig;
 import com.redis.triage.model.feign.Label;
 import com.redis.triage.model.webhook.GitHubIssue;
 import org.springframework.cloud.openfeign.FeignClient;
@@ -16,8 +15,7 @@ import java.util.List;
  */
 @FeignClient(
     name = "github-client",
-    url = "https://api.github.com",
-    configuration = GitHubFeignConfig.class
+    url = "https://api.github.com"
 )
 public interface GitHubFeignClient {
 
@@ -26,10 +24,19 @@ public interface GitHubFeignClient {
      *
      * @param owner The repository owner
      * @param repo The repository name
+     * @param userAgent The User-Agent header
+     * @param accept The Accept header
+     * @param authorization The Authorization header
      * @return List of labels from the repository
      */
     @GetMapping("/repos/{owner}/{repo}/labels")
-    List<Label> getRepositoryLabels(@PathVariable("owner") String owner, @PathVariable("repo") String repo , @RequestHeader("Authorization") String authorization);
+    List<Label> getRepositoryLabels(
+        @PathVariable("owner") String owner,
+        @PathVariable("repo") String repo,
+        @RequestHeader("User-Agent") String userAgent,
+        @RequestHeader("Accept") String accept,
+        @RequestHeader("Authorization") String authorization
+    );
 
     /**
      * Fetches issues from a GitHub repository filtered by label
@@ -42,6 +49,9 @@ public interface GitHubFeignClient {
      * @param direction The sort direction (asc, desc)
      * @param perPage The number of items per page (max 100)
      * @param page The page number (1-based)
+     * @param userAgent The User-Agent header
+     * @param accept The Accept header
+     * @param authorization The Authorization header
      * @return List of issues from the repository with the specified labels
      */
     @GetMapping("/repos/{owner}/{repo}/issues")
@@ -54,6 +64,8 @@ public interface GitHubFeignClient {
         @RequestParam("direction") String direction,
         @RequestParam("per_page") int perPage,
         @RequestParam("page") int page,
+        @RequestHeader("User-Agent") String userAgent,
+        @RequestHeader("Accept") String accept,
         @RequestHeader("Authorization") String authorization
     );
 }

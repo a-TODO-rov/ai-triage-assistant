@@ -7,6 +7,7 @@ import com.redis.triage.model.feign.LiteLLMEmbeddingRequest;
 import com.redis.triage.model.feign.LiteLLMEmbeddingResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -20,6 +21,9 @@ import java.util.List;
 public class LiteLLMClient {
 
     private final LiteLLMFeignClient liteLLMFeignClient;
+
+    @Value("${LITELLM_API_KEY:}")
+    private String liteLLMApiKey;
 
     /**
      * Sends a prompt to LiteLLM and returns the response
@@ -49,7 +53,10 @@ public class LiteLLMClient {
                 .build();
 
             // Make the API call
-            LiteLLMEmbeddingResponse response = liteLLMFeignClient.embeddings(request);
+            LiteLLMEmbeddingResponse response = liteLLMFeignClient.embeddings(
+                request,
+                liteLLMApiKey != null && !liteLLMApiKey.isEmpty() ? "Bearer " + liteLLMApiKey : ""
+            );
 
             if (response == null || response.getData() == null || response.getData().isEmpty()) {
                 log.error("Received null or empty response from LiteLLM embeddings API");
@@ -92,7 +99,10 @@ public class LiteLLMClient {
                 .build();
 
             // Make the API call
-            LiteLLMChatResponse response = liteLLMFeignClient.chatCompletions(request);
+            LiteLLMChatResponse response = liteLLMFeignClient.chatCompletions(
+                request,
+                liteLLMApiKey != null && !liteLLMApiKey.isEmpty() ? "Bearer " + liteLLMApiKey : ""
+            );
 
             if (response == null || response.getChoices() == null || response.getChoices().isEmpty()) {
                 log.error("Received null or empty response from LiteLLM API");
