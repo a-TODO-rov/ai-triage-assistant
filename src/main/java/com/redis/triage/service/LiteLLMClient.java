@@ -22,7 +22,7 @@ public class LiteLLMClient {
 
     private final LiteLLMFeignClient liteLLMFeignClient;
 
-    @Value("${LITELLM_API_KEY:}")
+    @Value("${lite-llm.api.key:}")
     private String liteLLMApiKey;
 
     /**

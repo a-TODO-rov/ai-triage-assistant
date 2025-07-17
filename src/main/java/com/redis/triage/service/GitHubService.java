@@ -22,7 +22,7 @@ public class GitHubService {
 
     private final GitHubFeignClient gitHubFeignClient;
 
-    @Value("${GITHUB_TOKEN:}")
+    @Value("${github.token:}")
     private String githubToken;
 
     /**

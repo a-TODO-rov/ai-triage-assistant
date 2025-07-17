@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
  */
 @FeignClient(
     name = "litellm-client",
-    url = "${LITELLM_BASE_URL}"
+    url = "${lite-llm.base.url}"
 )
 public interface LiteLLMFeignClient {
 
