@@ -1,0 +1,18 @@
+
+services:
+  - type: web
+    name: ai-triage-assistant
+    env: docker
+    plan: free
+    autoDeploy: true
+    envVars:
+      - key: LITELLM_API_KEY
+        sync: false
+      - key: MCP_SERVER_URL
+        sync: false
+      - key: SLACK_WEBHOOK_URL
+        sync: false
+      - key: GITHUB_APP_SECRET
+        sync: false
+      - key: PORT
+        value: 8080
