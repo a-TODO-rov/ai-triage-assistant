@@ -102,7 +102,7 @@ public class SemanticSearchService {
             List<GitHubIssue> similarIssues = new ArrayList<>();
             for (String issueKey : similarIssueKeys) {
                 GitHubIssue similarIssue = buildSimilarIssue(issueKey);
-                if (similarIssue != null) {
+                if (similarIssue != null && !similarIssue.getId().equals(issue.getId())) {
                     similarIssues.add(similarIssue);
                 }
             }
@@ -115,7 +115,7 @@ public class SemanticSearchService {
                 issue.getTitle(),
                 issue.getBody(),
                 labels,
-                issue.getUrl()
+                issue.getHtmlUrl()
             );
             log.info("Successfully stored issue '{}' with ID '{}' in Redis", issue.getTitle(), issueId);
 

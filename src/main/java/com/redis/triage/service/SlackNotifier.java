@@ -79,7 +79,7 @@ public class SlackNotifier {
 
         // Title with link
         String title = issue.getTitle() != null ? issue.getTitle() : "Untitled Issue";
-        String issueUrl = issue.getUrl() != null ? issue.getUrl() : "";
+        String issueUrl = issue.getHtmlUrl() != null ? issue.getHtmlUrl() : "";
         messageBuilder.append(String.format("*🔗 Title:* [%s](%s)\n\n", title, issueUrl));
 
         // Labels section
@@ -131,9 +131,6 @@ public class SlackNotifier {
             }
             messageBuilder.append("\n\n");
         }
-
-        // Actions section
-        messageBuilder.append("*⚙️ Actions:*  \n→ `/assign` · `/investigate` · `/comment`");
 
         return messageBuilder.toString();
     }
