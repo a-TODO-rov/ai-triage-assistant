@@ -26,9 +26,6 @@ import static org.mockito.Mockito.*;
 class LabelingServiceTest {
 
     @Mock
-    private SemanticSearchService semanticSearchService;
-
-    @Mock
     private LiteLLMClient liteLLMClient;
 
     @Mock
@@ -48,7 +45,7 @@ class LabelingServiceTest {
         objectMapper = new ObjectMapper();
         // Mock the router to return a default route
         when(promptRouter.routeFor(any())).thenReturn(new LlmRoute("gpt-4", "openai", 1.0));
-        labelingService = new LabelingService(liteLLMClient, gitHubService, semanticSearchService, jedis, objectMapper, promptRouter);
+        labelingService = new LabelingService(liteLLMClient, gitHubService, jedis, objectMapper, promptRouter);
     }
 
     @Test
@@ -131,6 +128,8 @@ class LabelingServiceTest {
         assertThat(result).containsExactly("performance");
         verify(gitHubService).fetchRepositoryLabels(repositoryUrl);
         verify(gitHubService).fetchIssueByLabel(repositoryUrl, "performance");
+        verify(jedis).setex(eq("repo:redis/lettuce:labels"), eq(3600), anyString());
+        verify(jedis).setex(eq("repo:redis/lettuce:label:performance:issue"), eq(1800), anyString()); // Issues have shorter TTL
     }
 
     @Test
