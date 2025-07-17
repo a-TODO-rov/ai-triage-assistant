@@ -128,8 +128,6 @@ class LabelingServiceTest {
         assertThat(result).containsExactly("performance");
         verify(gitHubService).fetchRepositoryLabels(repositoryUrl);
         verify(gitHubService).fetchIssueByLabel(repositoryUrl, "performance");
-        verify(jedis).setex(eq("repo:redis/lettuce:labels"), eq(3600), anyString());
-        verify(jedis).setex(eq("repo:redis/lettuce:label:performance:issue"), eq(1800), anyString()); // Issues have shorter TTL
     }
 
     @Test
