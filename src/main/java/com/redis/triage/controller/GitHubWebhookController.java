@@ -1,6 +1,6 @@
 package com.redis.triage.controller;
 
-import com.redis.triage.chain.TriageProcessorFacade;
+import com.redis.triage.service.chain.TriageProcessorFacade;
 import com.redis.triage.model.webhook.GitHubWebhookPayload;
 import com.redis.triage.model.webhook.GitHubIssue;
 import lombok.RequiredArgsConstructor;

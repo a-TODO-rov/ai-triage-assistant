@@ -1,4 +1,4 @@
-package com.redis.triage.chain;
+package com.redis.triage.service.chain;
 
 abstract class AbstractTriageProcessorNode implements TriageProcessorNode {
 
