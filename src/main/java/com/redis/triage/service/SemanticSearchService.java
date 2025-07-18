@@ -103,7 +103,7 @@ public class SemanticSearchService {
                     similarIssues.add(new GitHubSimilarIssue(similarIssue, similarIssueResult.distance(), similarIssueResult.similarityScore()));
                 }
             }
-            similarIssues.sort(Comparator.comparingInt(GitHubSimilarIssue::similarityScore));
+            similarIssues.sort(Comparator.comparingInt(GitHubSimilarIssue::similarityScore).reversed());
 
             // Step 4: Store the new issue in Redis for future similarity searches
             String issueId = extractIssueId(issue);
