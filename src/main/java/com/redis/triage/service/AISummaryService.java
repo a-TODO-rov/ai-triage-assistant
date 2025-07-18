@@ -1,5 +1,6 @@
 package com.redis.triage.service;
 
+import com.redis.triage.model.GitHubSimilarIssue;
 import com.redis.triage.model.TaskType;
 import com.redis.triage.model.webhook.GitHubIssue;
 import com.redis.triage.model.LlmRoute;
@@ -29,7 +30,7 @@ public class AISummaryService {
      * @param similarIssues List of similar issues for additional context
      * @return AI-generated summary with context from similar issues
      */
-    public String generateSummaryWithContext(GitHubIssue issue, List<String> labels, List<GitHubIssue> similarIssues) {
+    public String generateSummaryWithContext(GitHubIssue issue, List<String> labels, List<GitHubSimilarIssue> similarIssues) {
         log.info("Generating AI summary with similar issues context for: {}", issue.getTitle());
 
         try {
@@ -102,7 +103,7 @@ public class AISummaryService {
      * @param similarIssues List of similar issues for additional context
      * @return The formatted prompt string with context
      */
-    private String buildSummaryPromptWithContext(GitHubIssue issue, List<String> labels, List<GitHubIssue> similarIssues) {
+    private String buildSummaryPromptWithContext(GitHubIssue issue, List<String> labels, List<GitHubSimilarIssue> similarIssues) {
         String labelsContext = labels != null && !labels.isEmpty() ? 
             String.join(", ", labels) : "none";
 
@@ -110,9 +111,9 @@ public class AISummaryService {
         if (similarIssues != null && !similarIssues.isEmpty()) {
             similarIssuesContext.append("\n\nSimilar Issues Found:\n");
             for (int i = 0; i < Math.min(similarIssues.size(), 3); i++) {
-                GitHubIssue similar = similarIssues.get(i);
+                GitHubSimilarIssue similar = similarIssues.get(i);
                 similarIssuesContext.append(String.format("- %s\n", 
-                    similar.getTitle() != null ? similar.getTitle() : "Unknown Issue"));
+                    similar.issue().getTitle() != null ? similar.issue().getTitle() : "Unknown Issue"));
             }
         }
 

@@ -1,15 +1,14 @@
 package com.redis.triage.service;
 
+import com.redis.triage.model.GitHubSimilarIssue;
+import com.redis.triage.model.SimilarIssueResult;
 import com.redis.triage.model.webhook.GitHubIssue;
 import com.redis.triage.model.webhook.GitHubLabel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Service for performing semantic search on GitHub issues using vector embeddings
@@ -29,7 +28,7 @@ public class SemanticSearchService {
      * @param topK The number of top similar issues to return
      * @return List of similar issues with metadata
      */
-    public List<GitHubIssue> findSimilarIssues(GitHubIssue issue, int topK) {
+    public List<GitHubSimilarIssue> findSimilarIssues(GitHubIssue issue, int topK) {
         log.info("Finding {} similar issues for: {}", topK, issue.getTitle());
 
         try {
@@ -46,20 +45,20 @@ public class SemanticSearchService {
             log.info("Generated embedding with {} dimensions", queryEmbedding.length);
 
             // Step 2: Search for similar issues using vector similarity
-            List<String> similarIssueKeys = redisVectorStoreService.searchSimilarIssues(queryEmbedding, topK);
-            log.info("Found {} similar issue keys: {}", similarIssueKeys.size(), similarIssueKeys);
+            List<SimilarIssueResult> similarIssues = redisVectorStoreService.searchSimilarIssues(queryEmbedding, topK);
+            log.info("Found {} similar issue keys: {}", similarIssues.size(), similarIssues);
 
             // Step 3: Retrieve metadata for each similar issue
-            List<GitHubIssue> similarIssues = new ArrayList<>();
-            for (String issueKey : similarIssueKeys) {
-                GitHubIssue similarIssue = buildSimilarIssue(issueKey);
+            List<GitHubSimilarIssue> gitHubSimilarIssues = new ArrayList<>();
+            for (SimilarIssueResult result : similarIssues) {
+                GitHubIssue similarIssue = buildSimilarIssue(result.redisKey());
                 if (similarIssue != null) {
-                    similarIssues.add(similarIssue);
+                    gitHubSimilarIssues.add(new GitHubSimilarIssue(similarIssue, result.distance(), result.similarityScore()));
                 }
             }
 
-            log.info("Successfully found {} similar issues with metadata", similarIssues.size());
-            return similarIssues;
+            log.info("Successfully found {} similar issues with metadata", gitHubSimilarIssues.size());
+            return gitHubSimilarIssues;
 
         } catch (Exception e) {
             log.error("Error finding similar issues for '{}': {}", issue.getTitle(), e.getMessage(), e);
@@ -76,7 +75,7 @@ public class SemanticSearchService {
      * @param topK The number of top similar issues to return
      * @return List of similar issues found before storing the new one
      */
-    public List<GitHubIssue> findSimilarIssuesAndStore(GitHubIssue issue, List<String> labels, int topK) {
+    public List<GitHubSimilarIssue> findSimilarIssuesAndStore(GitHubIssue issue, List<String> labels, int topK) {
         log.info("Finding {} similar issues and storing new issue: {}", topK, issue.getTitle());
 
         try {
@@ -93,17 +92,18 @@ public class SemanticSearchService {
             log.info("Generated embedding with {} dimensions", queryEmbedding.length);
 
             // Step 2: Search for similar issues BEFORE storing the new one
-            List<String> similarIssueKeys = redisVectorStoreService.searchSimilarIssues(queryEmbedding, topK);
+            List<SimilarIssueResult> similarIssueKeys = redisVectorStoreService.searchSimilarIssues(queryEmbedding, topK);
             log.info("Found {} similar issue keys: {}", similarIssueKeys.size(), similarIssueKeys);
 
             // Step 3: Retrieve metadata for each similar issue
-            List<GitHubIssue> similarIssues = new ArrayList<>();
-            for (String issueKey : similarIssueKeys) {
-                GitHubIssue similarIssue = buildSimilarIssue(issueKey);
+            List<GitHubSimilarIssue> similarIssues = new ArrayList<>();
+            for (SimilarIssueResult similarIssueResult : similarIssueKeys) {
+                GitHubIssue similarIssue = buildSimilarIssue(similarIssueResult.redisKey());
                 if (similarIssue != null && !similarIssue.getId().equals(issue.getId())) {
-                    similarIssues.add(similarIssue);
+                    similarIssues.add(new GitHubSimilarIssue(similarIssue, similarIssueResult.distance(), similarIssueResult.similarityScore()));
                 }
             }
+            similarIssues.sort(Comparator.comparingInt(GitHubSimilarIssue::similarityScore));
 
             // Step 4: Store the new issue in Redis for future similarity searches
             String issueId = extractIssueId(issue);

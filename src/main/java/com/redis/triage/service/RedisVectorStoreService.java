@@ -1,5 +1,6 @@
 package com.redis.triage.service;
 
+import com.redis.triage.model.SimilarIssueResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -133,37 +134,37 @@ public class RedisVectorStoreService {
      * @param k The number of top matches to return
      * @return List of matching Redis keys (issue IDs)
      */
-    public List<String> searchSimilarIssues(float[] queryVector, int k) {
+    public List<SimilarIssueResult> searchSimilarIssues(float[] queryVector, int k) {
         log.info("Searching for {} similar issues using KNN vector search", k);
 
         try {
-            // Convert query vector to byte array
             byte[] queryBytes = floatArrayToByteArray(queryVector);
+            String searchQuery = String.format("*=>[KNN %d @embedding $vec_param AS score]", k);
 
-            // Build the FT.SEARCH query with proper KNN syntax
-            String searchQuery = String.format("*=>[KNN %d @embedding $vec_param]", k);
-
-            // Execute the search with PARAMS and DIALECT 2
             SearchResult result = jedis.ftSearch(INDEX_NAME, searchQuery,
-                redis.clients.jedis.search.FTSearchParams.searchParams()
-                    .addParam("vec_param", queryBytes)
-                    .dialect(2)
-                    .limit(0, k));
+                    redis.clients.jedis.search.FTSearchParams.searchParams()
+                            .addParam("vec_param", queryBytes)
+                            .dialect(2)
+                            .limit(0, k));
 
-            List<String> issueKeys = new ArrayList<>();
+            List<SimilarIssueResult> similar = new ArrayList<>();
             for (Document doc : result.getDocuments()) {
-                // Return the full Redis key (e.g., "issue:123")
-                issueKeys.add(doc.getId());
+                String redisKey = doc.getId();
+                double distance = Double.parseDouble(doc.getString("score"));
+                int score = (int) Math.round((1.0 - distance) * 100.0);
+
+                similar.add(new SimilarIssueResult(redisKey, distance, score));
             }
 
-            log.info("Found {} similar issues: {}", issueKeys.size(), issueKeys);
-            return issueKeys;
+            log.info("Found {} similar issues", similar.size());
+            return similar;
 
         } catch (Exception e) {
             log.error("Failed to search for similar issues using KNN: {}", e.getMessage(), e);
             return List.of();
         }
     }
+
 
     /**
      * Retrieves issue metadata from Redis by issue key

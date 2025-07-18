@@ -2,6 +2,7 @@ package com.redis.triage;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.redis.triage.controller.GitHubWebhookController;
+import com.redis.triage.model.GitHubSimilarIssue;
 import com.redis.triage.model.webhook.GitHubIssue;
 import com.redis.triage.model.webhook.GitHubWebhookPayload;
 import com.redis.triage.service.*;
@@ -123,11 +124,11 @@ class TriageWorkflowIT {
         log.info("Test completed successfully - Real LiteLLM API calls and Slack notification sent");
 
         // Verify semantic search functionality (using the read-only method to avoid double storage)
-        List<GitHubIssue> similarIssues = semanticSearchService.findSimilarIssues(issue, 3);
+        List<GitHubSimilarIssue> similarIssues = semanticSearchService.findSimilarIssues(issue, 3);
         assertThat(similarIssues).hasSizeGreaterThanOrEqualTo(2);
 
         // Verify that we can find the original mock issues
-        List<String> foundTitles = similarIssues.stream().map(GitHubIssue::getTitle).toList();
+        List<String> foundTitles = similarIssues.stream().map(similarIssue -> similarIssue.issue().getTitle()).toList();
         assertThat(foundTitles).contains("Redis cluster connection issues");
         assertThat(foundTitles).contains("Jedis timeout in high load");
 
@@ -149,12 +150,12 @@ class TriageWorkflowIT {
                 .htmlUrl("https://github.com/test/repo/issues/9999")
                 .build();
 
-        List<GitHubIssue> newSearchResults = semanticSearchService.findSimilarIssues(searchIssue, 5);
+        List<GitHubSimilarIssue> newSearchResults = semanticSearchService.findSimilarIssues(searchIssue, 5);
         // Should now find at least 3 issues: the 2 mock issues + the newly stored one
         assertThat(newSearchResults).hasSizeGreaterThanOrEqualTo(3);
 
         // Verify that the newly stored issue is now findable
-        List<String> newFoundTitles = newSearchResults.stream().map(GitHubIssue::getTitle).toList();
+        List<String> newFoundTitles = newSearchResults.stream().map(similarIssue -> similarIssue.issue().getTitle()).toList();
         assertThat(newFoundTitles).contains(issue.getTitle());
     }
 

@@ -1,6 +1,7 @@
 package com.redis.triage.service;
 
 import com.redis.triage.client.SlackFeignClient;
+import com.redis.triage.model.GitHubSimilarIssue;
 import com.redis.triage.model.feign.SlackWebhookRequest;
 import com.redis.triage.model.webhook.GitHubIssue;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +27,7 @@ public class SlackNotifier {
      * @param labels The generated labels for the issue
      * @param similarIssues List of similar issues found through semantic search
      */
-    public void sendNotification(GitHubIssue issue, List<String> labels, List<GitHubIssue> similarIssues) {
+    public void sendNotification(GitHubIssue issue, List<String> labels, List<GitHubSimilarIssue> similarIssues) {
         sendNotification(issue, labels, similarIssues, null);
     }
 
@@ -38,7 +39,7 @@ public class SlackNotifier {
      * @param similarIssues List of similar issues found through semantic search
      * @param aiSummary AI-generated summary of the issue (optional)
      */
-    public void sendNotification(GitHubIssue issue, List<String> labels, List<GitHubIssue> similarIssues, String aiSummary) {
+    public void sendNotification(GitHubIssue issue, List<String> labels, List<GitHubSimilarIssue> similarIssues, String aiSummary) {
         log.info("Sending Slack notification for issue: {}", issue.getTitle());
 
         try {
@@ -71,7 +72,7 @@ public class SlackNotifier {
      * @param aiSummary AI-generated summary of the issue (optional)
      * @return Formatted Slack message
      */
-    private String composeSlackMessage(GitHubIssue issue, List<String> labels, List<GitHubIssue> similarIssues, String aiSummary) {
+    private String composeSlackMessage(GitHubIssue issue, List<String> labels, List<GitHubSimilarIssue> similarIssues, String aiSummary) {
         StringBuilder messageBuilder = new StringBuilder();
 
         // Header
@@ -109,18 +110,16 @@ public class SlackNotifier {
         if (similarIssues != null && !similarIssues.isEmpty()) {
             messageBuilder.append("*🧩 Similar Issues:*  \n");
             for (int i = 0; i < Math.min(similarIssues.size(), 3); i++) { // Limit to top 3
-                GitHubIssue similar = similarIssues.get(i);
+                GitHubSimilarIssue similar = similarIssues.get(i);
 
-                // Calculate similarity score (mock 70-95% range if not available)
-                // In a real implementation, this would come from the vector search results
-                int score = 95 - (i * 10); // Simple mock: 95%, 85%, 75%
+                int score = similar.similarityScore();
 
-                String issueNumber = similar.getNumber() != null ?
-                    similar.getNumber().toString() : similar.getId().toString();
-                String similarUrl = similar.getUrl() != null ?
-                    similar.getUrl() : "";
-                String similarTitle = similar.getTitle() != null ?
-                    similar.getTitle() : "Unknown Issue";
+                String issueNumber = similar.issue().getNumber() != null ?
+                    similar.issue().getNumber().toString() : similar.issue().getId().toString();
+                String similarUrl = similar.issue().getUrl() != null ?
+                    similar.issue().getUrl() : "";
+                String similarTitle = similar.issue().getTitle() != null ?
+                    similar.issue().getTitle() : "Unknown Issue";
 
                 messageBuilder.append(String.format("• [#%s](%s) – \"%s\" (%d%%)",
                     issueNumber, similarUrl, similarTitle, score));

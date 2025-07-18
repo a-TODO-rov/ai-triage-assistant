@@ -1,5 +1,6 @@
 package com.redis.triage.service;
 
+import com.redis.triage.model.GitHubSimilarIssue;
 import com.redis.triage.model.webhook.GitHubIssue;
 import com.redis.triage.model.LlmRoute;
 import org.junit.jupiter.api.BeforeEach;
@@ -72,17 +73,17 @@ class AISummaryServiceTest {
 
         List<String> labels = List.of("bug", "redis-cluster", "performance");
 
-        GitHubIssue similarIssue1 = GitHubIssue.builder()
+        GitHubSimilarIssue similarIssue1 = new GitHubSimilarIssue(GitHubIssue.builder()
                 .id(100L)
                 .title("Redis Cluster connection drops under load")
-                .build();
+                .build(), 0.1, 90);
 
-        GitHubIssue similarIssue2 = GitHubIssue.builder()
+        GitHubSimilarIssue similarIssue2 = new GitHubSimilarIssue(GitHubIssue.builder()
                 .id(101L)
                 .title("Timeout issues with Redis Cluster")
-                .build();
+                .build(), 0.2, 85);
 
-        List<GitHubIssue> similarIssues = List.of(similarIssue1, similarIssue2);
+        List<GitHubSimilarIssue> similarIssues = List.of(similarIssue1, similarIssue2);
 
         // Mock LiteLLM response
         when(liteLLMClient.callLLM(anyString(), anyString(), anyString())).thenReturn(

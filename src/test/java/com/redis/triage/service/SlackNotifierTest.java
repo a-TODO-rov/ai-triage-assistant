@@ -1,6 +1,7 @@
 package com.redis.triage.service;
 
 import com.redis.triage.client.SlackFeignClient;
+import com.redis.triage.model.GitHubSimilarIssue;
 import com.redis.triage.model.webhook.GitHubIssue;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,21 +43,21 @@ class SlackNotifierTest {
 
         List<String> labels = List.of("bug", "redis-cluster", "performance");
 
-        GitHubIssue similarIssue1 = GitHubIssue.builder()
+        GitHubSimilarIssue similarIssue1 = new GitHubSimilarIssue(GitHubIssue.builder()
                 .id(100L)
                 .number(100)
                 .title("Similar Issue 1")
                 .htmlUrl("https://github.com/test/repo/issues/100")
-                .build();
+                .build(), 0.3, 80);
 
-        GitHubIssue similarIssue2 = GitHubIssue.builder()
+        GitHubSimilarIssue similarIssue2 = new GitHubSimilarIssue(GitHubIssue.builder()
                 .id(200L)
                 .number(200)
                 .title("Similar Issue 2")
                 .htmlUrl("https://github.com/test/repo/issues/200")
-                .build();
+                .build(), 0.5, 70);
 
-        List<GitHubIssue> similarIssues = List.of(similarIssue1, similarIssue2);
+        List<GitHubSimilarIssue> similarIssues = List.of(similarIssue1, similarIssue2);
 
         String aiSummary = "This issue appears to be related to Redis cluster performance.\nThe user is experiencing slow response times.";
 
@@ -98,7 +99,7 @@ class SlackNotifierTest {
                 .build();
 
         List<String> labels = List.of("feature");
-        List<GitHubIssue> similarIssues = List.of();
+        List<GitHubSimilarIssue> similarIssues = List.of();
 
         // Mock Feign client
         when(slackFeignClient.sendMessage(any())).thenReturn("ok");
